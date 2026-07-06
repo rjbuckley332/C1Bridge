@@ -11,7 +11,8 @@ targets:
     platform: iOS
     settings:
       base:
-        DEVELOPMENT_TEAM: "72994ZZQ6B"
+        DEVELOPMENT_TEAM: "XB8JG6VJUS"
+        CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: ai.reachhigher.C1Bridge
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "6"
