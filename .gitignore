@@ -1,0 +1,20 @@
+.DS_Store
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+
+# Build products and local indexes
+build/
+DerivedData/
+.build/
+*.dSYM
+*.ipa
+*.xcarchive
+
+# Swift Package Manager
+.swiftpm/
+
+# Local dependency folders
+Carthage/Build/
+Pods/

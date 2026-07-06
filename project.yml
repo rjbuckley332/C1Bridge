@@ -1,0 +1,40 @@
+name: C1Bridge
+options:
+  bundleIdPrefix: ai.reachhigher
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  SWIFT_VERSION: "5.0"
+targets:
+  C1Bridge:
+    type: application
+    platform: iOS
+    settings:
+      base:
+        DEVELOPMENT_TEAM: "72994ZZQ6B"
+        PRODUCT_BUNDLE_IDENTIFIER: ai.reachhigher.C1Bridge
+        SWIFT_EMIT_LOC_STRINGS: YES
+        SWIFT_VERSION: "5.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    sources:
+      - path: C1Bridge
+        exclude:
+          - "*.plist"
+          - "*.png"
+          - "*.pdf"
+          - "*.csv"
+          - "*.bak-*"
+          - "Can you undo*"
+          - "Item.swift"
+    info:
+      path: C1Bridge/Info.plist
+      properties:
+        UIRequiredDeviceCapabilities:
+          - bluetooth-le
+        NSBluetoothAlwaysUsageDescription: C1 MIDI Bridge uses Bluetooth to connect to your C1 guitar.
+        NSBluetoothPeripheralUsageDescription: C1 MIDI Bridge uses Bluetooth to connect to your C1 guitar.
+        UIBackgroundModes:
+          - bluetooth-central
+          - audio
+          - fetch
+        CFBundleDisplayName: C1 MIDI Bridge
