@@ -153,6 +153,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -160,6 +161,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.reachhigher.C1Bridge;
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -173,6 +175,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -180,6 +183,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.reachhigher.C1Bridge;
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
