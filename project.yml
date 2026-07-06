@@ -34,6 +34,7 @@ targets:
       properties:
         UIRequiredDeviceCapabilities:
           - bluetooth-le
+        UILaunchStoryboardName: LaunchScreen
         UIRequiresFullScreen: true
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

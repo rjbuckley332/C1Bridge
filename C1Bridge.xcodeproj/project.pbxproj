@@ -11,6 +11,7 @@
 		0842EAF4E1C2889E1C078E44 /* EmbeddedMasterMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3BF9C8E32D6B7B1963D7BA /* EmbeddedMasterMapping.swift */; };
 		2B4551BE75149C9408FDE086 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC8DBA3349D0AB5856A376E /* ContentView.swift */; };
 		466A37BB43295D955A5DB1AB /* BackgroundAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */; };
+		60C05282F52B4B01858D24B8 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6A1B4E6C43BB43718C839E7C /* LaunchScreen.storyboard */; };
 		9908E34779EBB3433F0A1AAB /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A746321A2AF5B1EB8A163E6 /* AppModel.swift */; };
 		B305C9578A361367E5E610E8 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E535164D5605A92869596A10 /* Logger.swift */; };
 		BE4AF02CE383E9CDC5A185E8 /* MIDIHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5ED99013535799D405AD407 /* MIDIHandler.swift */; };
@@ -24,6 +25,7 @@
 		2A746321A2AF5B1EB8A163E6 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		2F41FF570DB83FC6D1A4F164 /* C1Bridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = C1Bridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		35A9774CF1858FF858FE7190 /* PayloadUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadUtils.swift; sourceTree = "<group>"; };
+		6A1B4E6C43BB43718C839E7C /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A5ED99013535799D405AD407 /* MIDIHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIHandler.swift; sourceTree = "<group>"; };
 		A7F81C6AB2812C0916D1C1DD /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
 		AEC8DBA3349D0AB5856A376E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -46,6 +48,7 @@
 				AEC8DBA3349D0AB5856A376E /* ContentView.swift */,
 				FA3BF9C8E32D6B7B1963D7BA /* EmbeddedMasterMapping.swift */,
 				207EB7B6D1B960BE058B7766 /* Info.plist */,
+				6A1B4E6C43BB43718C839E7C /* LaunchScreen.storyboard */,
 				E535164D5605A92869596A10 /* Logger.swift */,
 				A5ED99013535799D405AD407 /* MIDIHandler.swift */,
 				35A9774CF1858FF858FE7190 /* PayloadUtils.swift */,
@@ -123,6 +126,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				04C19206C4AE755163C40B97 /* Assets.xcassets in Resources */,
+				60C05282F52B4B01858D24B8 /* LaunchScreen.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
