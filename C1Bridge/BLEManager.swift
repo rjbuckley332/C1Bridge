@@ -16,6 +16,13 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     private var writeCharacteristic: CBCharacteristic?
     private var shouldScanWhenPoweredOn = false
     private let secretKey: UInt8 = 0x5A
+    private var pendingWrites: [(data: Data, name: String)] = []
+    private var writeInFlight = false
+    private var hasSentQueuedWrites = false
+    private var writeGeneration = 0
+    private var currentWriteName: String?
+    private let maxPendingWrites = 64
+    private let writeTimeoutSeconds = 1.5
 
     private override init() {
         super.init()
@@ -86,6 +93,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         connectedPeripheral = nil
         isConnected = false
+        resetWriteQueue()
         AppModel.shared.addLog("Connect failed: \(error?.localizedDescription ?? "unknown error")")
     }
 
@@ -93,6 +101,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         isConnected = false
         connectedPeripheralName = nil
         writeCharacteristic = nil
+        resetWriteQueue()
         // We clear the reference so we can connect fresh next time
         connectedPeripheral = nil
         AppModel.shared.addLog("Disconnected from C1")
@@ -127,8 +136,20 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             if c.uuid == writeCharUUID {
                 writeCharacteristic = c
                 AppModel.shared.addLog("Ready to write: Found FF03")
+                drainWriteQueue()
             }
         }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error {
+            AppModel.shared.addLog("Write failed: \(error.localizedDescription)")
+        }
+
+        writeInFlight = false
+        currentWriteName = nil
+        drainWriteQueue()
+        logReadyForNextSongIfIdle()
     }
 
     // MARK: - Scanning
@@ -163,12 +184,60 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     }
 
     private func writeToHardware(_ data: Data, name: String) {
-        guard let peripheral = connectedPeripheral, let characteristic = writeCharacteristic else {
+        guard connectedPeripheral != nil, writeCharacteristic != nil else {
             AppModel.shared.addLog("Write failed: Not connected")
             return
         }
-        peripheral.writeValue(data, for: characteristic, type: .withResponse)
-        AppModel.shared.addLog("Sent: \(name)")
+
+        pendingWrites.append((data, name))
+        if pendingWrites.count > maxPendingWrites {
+            let dropped = pendingWrites.removeFirst()
+            AppModel.shared.addLog("Dropped queued write: \(dropped.name)")
+        }
+        drainWriteQueue()
+    }
+
+    private func drainWriteQueue() {
+        guard !writeInFlight else { return }
+        guard let peripheral = connectedPeripheral, let characteristic = writeCharacteristic else { return }
+        guard !pendingWrites.isEmpty else { return }
+
+        let next = pendingWrites.removeFirst()
+        writeInFlight = true
+        hasSentQueuedWrites = true
+        currentWriteName = next.name
+        writeGeneration += 1
+        let generation = writeGeneration
+        peripheral.writeValue(next.data, for: characteristic, type: .withResponse)
+        AppModel.shared.addLog("Sent: \(next.name)")
+        scheduleWriteWatchdog(generation: generation, name: next.name)
+    }
+
+    private func resetWriteQueue() {
+        pendingWrites.removeAll()
+        writeInFlight = false
+        hasSentQueuedWrites = false
+        currentWriteName = nil
+        writeGeneration += 1
+    }
+
+    private func logReadyForNextSongIfIdle() {
+        guard hasSentQueuedWrites, !writeInFlight, pendingWrites.isEmpty else { return }
+        hasSentQueuedWrites = false
+        AppModel.shared.addLog("Ready for next song")
+    }
+
+    private func scheduleWriteWatchdog(generation: Int, name: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + writeTimeoutSeconds) { [weak self] in
+            guard let self = self else { return }
+            guard self.writeInFlight, self.writeGeneration == generation else { return }
+
+            AppModel.shared.addLog("BLE write stalled: \(self.currentWriteName ?? name). Continuing.")
+            self.writeInFlight = false
+            self.currentWriteName = nil
+            self.drainWriteQueue()
+            self.logReadyForNextSongIfIdle()
+        }
     }
 
     private func hexStringToData(_ hex: String) -> Data? {
