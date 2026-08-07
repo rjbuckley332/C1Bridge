@@ -5,6 +5,7 @@ class MIDIHandler {
     private static var client = MIDIClientRef()
     private static var virtualDestination = MIDIEndpointRef()
     private static var currentKeyBase: UInt8 = 0x20
+    private static var isAdvertising = false
 
     // MARK: - KEY TABLE
     private static let keyTable: [Int: (name: String, payloadHex: String)] = [
@@ -58,9 +59,14 @@ class MIDIHandler {
     }
 
     static func startAdvertising() {
+        guard !isAdvertising else { return }
+
         let s1 = MIDIClientCreateWithBlock("C1BridgeClient" as CFString, &client) { _ in }
         if s1 != noErr {
             AppModel.shared.addLog("MIDI: client create failed (OSStatus=\(s1))")
+            client = MIDIClientRef()
+            isAdvertising = false
+            return
         } else {
             AppModel.shared.addLog("MIDI: client created")
         }
@@ -70,16 +76,40 @@ class MIDIHandler {
             var packet = packets.packet
             for _ in 0 ..< packets.numPackets {
                 let data = Mirror(reflecting: packet.data).children.prefix(Int(packet.length)).map { $0.value as! UInt8 }
-                // This calls the STATIC handler below
-                DispatchQueue.main.async { self.handleIncomingMIDI(packet: data) }
+                // Filter on the MIDI thread: only Program Changes (0xCn) drive the bridge.
+                // Keeps clock/active-sensing floods off the main queue in the background.
+                if let first = data.first, (first & 0xF0) == 0xC0 {
+                    DispatchQueue.main.async { self.handleIncomingMIDI(packet: data) }
+                }
                 packet = MIDIPacketNext(&packet).pointee
             }
         }
         if s2 != noErr {
             AppModel.shared.addLog("MIDI: destination create failed (OSStatus=\(s2))")
+            MIDIClientDispose(client)
+            client = MIDIClientRef()
+            virtualDestination = MIDIEndpointRef()
+            isAdvertising = false
         } else {
             AppModel.shared.addLog("MIDI: destination created (name=\"C1 Bridge\")")
+            isAdvertising = true
         }
+    }
+
+    static func restartAdvertising() {
+        if virtualDestination != 0 {
+            MIDIEndpointDispose(virtualDestination)
+            virtualDestination = MIDIEndpointRef()
+        }
+
+        if client != 0 {
+            MIDIClientDispose(client)
+            client = MIDIClientRef()
+        }
+
+        isAdvertising = false
+        AppModel.shared.addLog("MIDI: restarting destination")
+        startAdvertising()
     }
 
     // MARK: - MAIN PACKET HANDLER
@@ -126,7 +156,7 @@ class MIDIHandler {
         // 2. INSTRUMENTS: Channels 1-4 (payloads are often encrypted)
         if channel >= 1 && channel <= 4 {
             if let entry = instrumentMap[channel]?[program] {
-                AppModel.shared.addLog("TX (Instrument Ch\(channel) P\(program)): \(entry.name) -> \(entry.payloadHex.uppercased())")
+                AppModel.shared.addLog("Instrument Ch\(channel) P\(program): \(entry.name)")
 
                 // Instruments in EmbeddedMasterMapping are stored XOR-encrypted (key 0x5A) in many rows (e.g. EB44...).
                 // The C1 expects plaintext commands that begin with B11E, so we decode to plaintext before sending.
@@ -135,7 +165,6 @@ class MIDIHandler {
                     BLEManager.shared.writeRawHex(payload, name: "Instrument \(entry.name)")
                 } else {
                     let decoded = xorHex(payload, key: 0x5A)
-                    AppModel.shared.addLog("TX (Instrument decoded): \(decoded.uppercased())")
                     BLEManager.shared.writeRawHex(decoded, name: "Instrument \(entry.name) (decoded)")
                 }
             } else {

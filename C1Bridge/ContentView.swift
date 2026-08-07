@@ -3,7 +3,14 @@ import SwiftUI
 struct ContentView: View {
     @ObservedObject private var ble = BLEManager.shared
     @ObservedObject private var model = AppModel.shared
+    @ObservedObject private var keepAlive = BackgroundAudioManager.shared
     @State private var selectedTab = 0
+    
+    private var versionText: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
+        return "Version \(version) (\(build))"
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -30,6 +37,14 @@ struct ContentView: View {
         .navigationTitle(ble.isConnected ? "C1: Connected" : "C1: Disconnected")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: {
+                    MIDIHandler.restartAdvertising()
+                }) {
+                    Label("Reset MIDI", systemImage: "arrow.clockwise")
+                }
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: {
                     ble.isScanning ? ble.stopScan() : ble.startScan()
@@ -49,8 +64,9 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Circle().fill(Color.green).frame(width: 8, height: 8)
-                    Text("Background Bridge Active").font(.subheadline).bold()
+                    Circle().fill(keepAlive.isRunning ? Color.green : Color.red).frame(width: 8, height: 8)
+                    Text(keepAlive.isRunning ? "Background Bridge Active" : "Keep-alive STOPPED — reopen app")
+                        .font(.subheadline).bold()
                     Spacer()
                     if ble.isConnected {
                         Button(action: { ble.disconnect() }) {
@@ -60,6 +76,9 @@ struct ContentView: View {
                 }
                 Text("Keep-alive active to maintain MIDI sync. This may increase battery usage.")
                     .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(versionText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             .padding().background(Color(.secondarySystemBackground)).cornerRadius(8).padding(.top)
             
