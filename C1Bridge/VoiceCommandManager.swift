@@ -203,7 +203,8 @@ final class VoiceCommandManager: ObservableObject {
     // MARK: - Command grammar
 
     private func handle(_ raw: String) {
-        let norm = Self.normalize(raw)
+        var norm = Self.normalize(raw)
+        norm = Self.stripFillers(norm)
 
         if let name = Self.extractAfter(norm, prefixes: ["save as", "save this as", "save song as", "save this song as", "call this", "name this"]),
            !name.isEmpty {
@@ -271,6 +272,7 @@ final class VoiceCommandManager: ObservableObject {
         }
         name = name.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
+        if let alias = Self.patternAliases[name] { name = alias }
         guard !name.isEmpty else {
             statusLine = "Heard you, but no pattern name in that."
             return
@@ -410,6 +412,33 @@ final class VoiceCommandManager: ObservableObject {
         t = t.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         return t.trimmingCharacters(in: .whitespaces)
     }
+
+    /// Drops natural leading filler so "in the key of D", "a tempo of 130",
+    /// "please load Country Roads" etc. parse like their command forms.
+    static func stripFillers(_ s: String) -> String {
+        let fillers = ["in the", "the", "a", "an", "please", "set", "make it",
+                       "i want", "i'd like", "give me", "lets", "let's", "with", "to"]
+        var t = s
+        for _ in 0..<3 {
+            var stripped = false
+            for f in fillers where t.hasPrefix(f + " ") {
+                t = String(t.dropFirst(f.count + 1))
+                stripped = true
+                break
+            }
+            if !stripped { break }
+        }
+        return t
+    }
+
+    /// Common mishearings/nicknames -> official LiberLive names.
+    static let patternAliases: [String: String] = [
+        "sweet pic": "sweep cutting",
+        "sweet pick": "sweep cutting",
+        "sweet picking": "sweep cutting",
+        "sweep pick": "sweep cutting",
+        "sweep picking": "sweep cutting",
+    ]
 
     static func extractAfter(_ norm: String, prefixes: [String]) -> String? {
         for p in prefixes where norm.hasPrefix(p + " ") {
