@@ -14,25 +14,29 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
+            songSetupView
+                .tabItem { Label("Song Setup", systemImage: "music.mic") }
+                .tag(0)
+
             logView
                 .tabItem { Label("Activity", systemImage: "list.bullet.rectangle") }
-                .tag(0)
+                .tag(1)
 
             tempoReferenceView
                 .tabItem { Label("Tempo", systemImage: "metronome") }
-                .tag(1)
+                .tag(2)
 
             keyReferenceView
                 .tabItem { Label("Key", systemImage: "music.note.list") }
-                .tag(2)
+                .tag(3)
 
             instrumentReferenceView
                 .tabItem { Label("Instruments", systemImage: "guitars") }
-                .tag(3)
+                .tag(4)
 
             volumeReferenceView
                 .tabItem { Label("Volume", systemImage: "speaker.wave.3") }
-                .tag(4)
+                .tag(5)
         }
         .navigationTitle(ble.isConnected ? "C1: Connected" : "C1: Disconnected")
         .navigationBarTitleDisplayMode(.inline)
@@ -57,6 +61,11 @@ struct ContentView: View {
         .onAppear {
             model.startBackgroundServices()
         }
+    }
+
+    // MARK: - Song Setup (voice-first builder)
+    private var songSetupView: some View {
+        SongSetupView()
     }
 
     // MARK: - Activity Log

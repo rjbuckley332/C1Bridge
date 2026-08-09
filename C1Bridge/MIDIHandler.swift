@@ -118,8 +118,22 @@ class MIDIHandler {
         let status = packet[0]
         let channel = Int(status & 0x0F) + 1
         let program = Int(packet[1]) + 1 // Converts MIDI 0-127 to 1-128
-        
+
         guard (status & 0xF0) == 0xC0 else { return }
+        trigger(channel: channel, program: program)
+    }
+
+    /// Single entry point for "act like OnSong sent Ch/PC" — used by the MIDI
+    /// handler, the voice commands, and the preset store.
+    static func trigger(channel: Int, program: Int) {
+        // 0. SONG PRESETS: Channel 16 (PC N -> saved song N)
+        if channel == 16 {
+            AppModel.shared.addLog("Preset trigger: Ch16 P\(program)")
+            Task { @MainActor in
+                PresetStore.shared.apply(program: program)
+            }
+            return
+        }
 
         // 1. KEY & CHORD MAPS: Channel 7
         if channel == 7 {
@@ -186,6 +200,23 @@ class MIDIHandler {
         // 4. GLOBAL RESET: Channel 10 PC 1
         else if channel == 10 && program == 1 {
             sendHexWithLog("b11e02010002", name: "Global Reset")
+        }
+    }
+
+    // MARK: - Tempo helpers (shared by voice + presets)
+    static func triggerTempo(bpm: Int) {
+        if bpm <= 166 {
+            trigger(channel: 5, program: bpm - 39)
+        } else {
+            trigger(channel: 6, program: bpm - 168)
+        }
+    }
+
+    static func tempoMidiLabel(bpm: Int) -> String {
+        if bpm <= 166 {
+            return "Ch 5 · PC \(bpm - 39)"
+        } else {
+            return "Ch 6 · PC \(bpm - 168)"
         }
     }
 

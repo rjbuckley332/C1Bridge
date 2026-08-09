@@ -14,8 +14,8 @@ targets:
         DEVELOPMENT_TEAM: "XB8JG6VJUS"
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: ai.reachhigher.C1Bridge
-        MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "9"
+        MARKETING_VERSION: "1.2"
+        CURRENT_PROJECT_VERSION: "10"
         SWIFT_EMIT_LOC_STRINGS: YES
         SWIFT_VERSION: "5.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
@@ -47,8 +47,12 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSBluetoothAlwaysUsageDescription: C1 MIDI Bridge uses Bluetooth to connect to your C1 guitar.
         NSBluetoothPeripheralUsageDescription: C1 MIDI Bridge uses Bluetooth to connect to your C1 guitar.
+        NSSpeechRecognitionUsageDescription: C1 MIDI Bridge uses on-device speech recognition so you can build song setups by voice.
+        NSMicrophoneUsageDescription: C1 MIDI Bridge uses the microphone to hear your voice commands while building song setups.
         UIBackgroundModes:
           - bluetooth-central
           - audio
           - fetch
         CFBundleDisplayName: C1 MIDI Bridge
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)

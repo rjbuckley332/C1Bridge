@@ -3,36 +3,44 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 63;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		04C19206C4AE755163C40B97 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D691A63C9E1A431CAB629315 /* Assets.xcassets */; };
 		0842EAF4E1C2889E1C078E44 /* EmbeddedMasterMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3BF9C8E32D6B7B1963D7BA /* EmbeddedMasterMapping.swift */; };
 		2B4551BE75149C9408FDE086 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC8DBA3349D0AB5856A376E /* ContentView.swift */; };
+		3D58B3BD286903E537172CBA /* PatternLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FE8CA2CEB793CAAC8D79056 /* PatternLibrary.swift */; };
+		44039DE5EE6464A6D110F9D3 /* PresetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B476EF9C5CC8D75E63F5321A /* PresetStore.swift */; };
 		466A37BB43295D955A5DB1AB /* BackgroundAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */; };
-		60C05282F52B4B01858D24B8 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6A1B4E6C43BB43718C839E7C /* LaunchScreen.storyboard */; };
+		8B8E911D750D2C88BFB32423 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F18C144DA9C30B36411E5FC8 /* LaunchScreen.storyboard */; };
 		9908E34779EBB3433F0A1AAB /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A746321A2AF5B1EB8A163E6 /* AppModel.swift */; };
+		B08340F92668C2C73332E36C /* SongSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08453A95BE07A1EE056792D2 /* SongSetupView.swift */; };
 		B305C9578A361367E5E610E8 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = E535164D5605A92869596A10 /* Logger.swift */; };
 		BE4AF02CE383E9CDC5A185E8 /* MIDIHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5ED99013535799D405AD407 /* MIDIHandler.swift */; };
 		C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A9774CF1858FF858FE7190 /* PayloadUtils.swift */; };
+		CD6D84BCE9E96B7AEDCC0FED /* VoiceCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */; };
 		DAEEDDC05E219044C2060CB7 /* C1BridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */; };
+		EA9E65E11ADC1DA139745A4A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D568B76A0D9879217511160B /* Assets.xcassets */; };
 		F6E89EEC3D85968A2432BC12 /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F81C6AB2812C0916D1C1DD /* BLEManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		08453A95BE07A1EE056792D2 /* SongSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongSetupView.swift; sourceTree = "<group>"; };
 		207EB7B6D1B960BE058B7766 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2A746321A2AF5B1EB8A163E6 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
-		2F41FF570DB83FC6D1A4F164 /* C1Bridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = C1Bridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2F41FF570DB83FC6D1A4F164 /* C1Bridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = C1Bridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		35A9774CF1858FF858FE7190 /* PayloadUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadUtils.swift; sourceTree = "<group>"; };
-		6A1B4E6C43BB43718C839E7C /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		7FE8CA2CEB793CAAC8D79056 /* PatternLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternLibrary.swift; sourceTree = "<group>"; };
 		A5ED99013535799D405AD407 /* MIDIHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIHandler.swift; sourceTree = "<group>"; };
 		A7F81C6AB2812C0916D1C1DD /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
 		AEC8DBA3349D0AB5856A376E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B476EF9C5CC8D75E63F5321A /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
 		B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = C1BridgeApp.swift; sourceTree = "<group>"; };
-		D691A63C9E1A431CAB629315 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D568B76A0D9879217511160B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E535164D5605A92869596A10 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
+		ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandManager.swift; sourceTree = "<group>"; };
 		F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundAudioManager.swift; sourceTree = "<group>"; };
+		F18C144DA9C30B36411E5FC8 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		FA3BF9C8E32D6B7B1963D7BA /* EmbeddedMasterMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedMasterMapping.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -41,17 +49,21 @@
 			isa = PBXGroup;
 			children = (
 				2A746321A2AF5B1EB8A163E6 /* AppModel.swift */,
-				D691A63C9E1A431CAB629315 /* Assets.xcassets */,
+				D568B76A0D9879217511160B /* Assets.xcassets */,
 				F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */,
 				A7F81C6AB2812C0916D1C1DD /* BLEManager.swift */,
 				B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */,
 				AEC8DBA3349D0AB5856A376E /* ContentView.swift */,
 				FA3BF9C8E32D6B7B1963D7BA /* EmbeddedMasterMapping.swift */,
 				207EB7B6D1B960BE058B7766 /* Info.plist */,
-				6A1B4E6C43BB43718C839E7C /* LaunchScreen.storyboard */,
+				F18C144DA9C30B36411E5FC8 /* LaunchScreen.storyboard */,
 				E535164D5605A92869596A10 /* Logger.swift */,
 				A5ED99013535799D405AD407 /* MIDIHandler.swift */,
+				7FE8CA2CEB793CAAC8D79056 /* PatternLibrary.swift */,
 				35A9774CF1858FF858FE7190 /* PayloadUtils.swift */,
+				B476EF9C5CC8D75E63F5321A /* PresetStore.swift */,
+				08453A95BE07A1EE056792D2 /* SongSetupView.swift */,
+				ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */,
 			);
 			path = C1Bridge;
 			sourceTree = "<group>";
@@ -80,7 +92,7 @@
 			buildConfigurationList = EE1B0507405431ABE0F379C1 /* Build configuration list for PBXNativeTarget "C1Bridge" */;
 			buildPhases = (
 				5E6B7D27B99B549C0003B4BC /* Sources */,
-				A81263B4FBBD41879D37272C /* Resources */,
+				716F5ECB8552417D527563E7 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -101,6 +113,12 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					539A827FCF2AA5E4CF22BFD9 = {
+						DevelopmentTeam = XB8JG6VJUS;
+						ProvisioningStyle = Automatic;
+					};
+				};
 			};
 			buildConfigurationList = DA1D8580A3F9113C631EE6C3 /* Build configuration list for PBXProject "C1Bridge" */;
 			compatibilityVersion = "Xcode 14.0";
@@ -112,6 +130,7 @@
 			);
 			mainGroup = 3B68D0EA09646C1125AF6DD2;
 			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -121,12 +140,12 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A81263B4FBBD41879D37272C /* Resources */ = {
+		716F5ECB8552417D527563E7 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				04C19206C4AE755163C40B97 /* Assets.xcassets in Resources */,
-				60C05282F52B4B01858D24B8 /* LaunchScreen.storyboard in Resources */,
+				EA9E65E11ADC1DA139745A4A /* Assets.xcassets in Resources */,
+				8B8E911D750D2C88BFB32423 /* LaunchScreen.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -145,7 +164,11 @@
 				0842EAF4E1C2889E1C078E44 /* EmbeddedMasterMapping.swift in Sources */,
 				B305C9578A361367E5E610E8 /* Logger.swift in Sources */,
 				BE4AF02CE383E9CDC5A185E8 /* MIDIHandler.swift in Sources */,
+				3D58B3BD286903E537172CBA /* PatternLibrary.swift in Sources */,
 				C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */,
+				44039DE5EE6464A6D110F9D3 /* PresetStore.swift in Sources */,
+				B08340F92668C2C73332E36C /* SongSetupView.swift in Sources */,
+				CD6D84BCE9E96B7AEDCC0FED /* VoiceCommandManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -156,8 +179,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -165,7 +189,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.reachhigher.C1Bridge;
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -178,8 +202,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 9;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -187,7 +212,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = ai.reachhigher.C1Bridge;
 				SDKROOT = iphoneos;
 				SWIFT_EMIT_LOC_STRINGS = YES;
