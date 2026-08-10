@@ -9,6 +9,7 @@ struct SongSetupView: View {
     @ObservedObject private var presets = PresetStore.shared
     @State private var searchText = ""
     @State private var presetName = ""
+    @FocusState private var nameFieldFocused: Bool
 
     private static let keyNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -23,7 +24,14 @@ struct SongSetupView: View {
             presetsSection
         }
         .listStyle(.insetGrouped)
+        .scrollDismissesKeyboard(.interactively)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Find a pattern (e.g. Hotel)")
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { nameFieldFocused = false }
+            }
+        }
     }
 
     // MARK: - Voice
@@ -268,11 +276,15 @@ struct SongSetupView: View {
         Section {
             HStack {
                 TextField("Song name (e.g. Country Roads)", text: $presetName)
+                    .focused($nameFieldFocused)
+                    .submitLabel(.done)
+                    .onSubmit { nameFieldFocused = false }
                 Button("Save") {
                     let name = presetName.trimmingCharacters(in: .whitespaces)
                     guard !name.isEmpty else { return }
                     voice.savePreset(named: name)
                     presetName = ""
+                    nameFieldFocused = false
                 }
                 .disabled(presetName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -294,6 +306,7 @@ struct SongSetupView: View {
                             Text(preset.name).font(.subheadline).bold()
                             Spacer()
                             Button("Edit") {
+                                nameFieldFocused = false
                                 voice.loadForEditing(preset)
                                 presetName = preset.name
                             }
