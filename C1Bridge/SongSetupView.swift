@@ -295,6 +295,11 @@ struct SongSetupView: View {
                             }
                             Text(preset.name).font(.subheadline).bold()
                             Spacer()
+                            Button("Edit") {
+                                voice.loadForEditing(preset)
+                                presetName = preset.name
+                            }
+                            .buttonStyle(.bordered)
                             Button("Apply") { voice.applyPreset(preset) }
                                 .buttonStyle(.bordered)
                         }

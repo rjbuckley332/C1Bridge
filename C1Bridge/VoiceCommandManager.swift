@@ -211,6 +211,14 @@ final class VoiceCommandManager: ObservableObject {
             savePreset(named: Self.titleCase(name))
             return
         }
+        if let name = Self.extractAfter(norm, prefixes: ["edit"]), !name.isEmpty {
+            if let preset = PresetStore.shared.bestMatch(for: name) {
+                loadForEditing(preset)
+            } else {
+                statusLine = "No saved song matches \"\(name)\"."
+            }
+            return
+        }
         if let name = Self.extractAfter(norm, prefixes: ["load", "play", "preset", "open"]),
            !name.isEmpty {
             if loadPreset(matching: name) { return }
@@ -381,6 +389,19 @@ final class VoiceCommandManager: ObservableObject {
         statusLine = "Saved \"\(preset.name)\" as song #\(number) — in OnSong: Ch 16 · PC \(number)."
         AppModel.shared.addLog("Voice: saved preset \"\(preset.name)\" (#\(number))")
         haptic()
+    }
+
+    /// Loads a preset into the editor WITHOUT sending anything to the C1,
+    /// so it can be modified and re-saved (same name keeps the same trigger number).
+    func loadForEditing(_ preset: SongPreset) {
+        items = preset.patterns.map { $0.toPattern() }
+        keyProgram = preset.keyProgram
+        keyLabel = preset.keyLabel
+        tempoBPM = preset.tempoBPM
+        drumVol = preset.drumVol
+        bassVol = preset.bassVol
+        candidate = nil
+        statusLine = "Editing \"\(preset.name)\" — make changes, then save with the same name."
     }
 
     func applyPreset(_ preset: SongPreset) {
