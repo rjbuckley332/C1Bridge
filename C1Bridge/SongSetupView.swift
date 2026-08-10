@@ -285,14 +285,12 @@ struct SongSetupView: View {
                 ForEach(presets.presets) { preset in
                     VStack(alignment: .leading, spacing: 3) {
                         HStack {
-                            if let n = presets.triggerNumber(for: preset) {
-                                Text("#\(n)")
-                                    .font(.caption).bold()
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Color.purple)
-                                    .clipShape(Capsule())
-                            }
+                            Text("#\(preset.triggerNumber)")
+                                .font(.caption).bold()
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.purple)
+                                .clipShape(Capsule())
                             Text(preset.name).font(.subheadline).bold()
                             Spacer()
                             Button("Edit") {
@@ -306,11 +304,9 @@ struct SongSetupView: View {
                         Text(presetSummary(preset))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        if let n = presets.triggerNumber(for: preset) {
-                            Text("OnSong trigger: Ch 16 · PC \(n)")
-                                .font(.caption2)
-                                .foregroundStyle(.purple)
-                        }
+                        Text("OnSong trigger: Ch 16 · PC \(preset.triggerNumber)")
+                            .font(.caption2)
+                            .foregroundStyle(.purple)
                     }
                     .padding(.vertical, 2)
                 }
@@ -319,7 +315,7 @@ struct SongSetupView: View {
         } header: {
             Text("Saved Songs")
         } footer: {
-            Text("In OnSong, give each song ONE MIDI event: Channel 16, Program = the song's #. C1 Bridge applies the whole saved setup when the song loads. You can also say \"load <name>\".")
+            Text("In OnSong, give each song ONE MIDI event: Channel 16, Program = the song's #. Song numbers are permanent — they never change, even if you edit or delete other songs. You can also say \"load <name>\".")
         }
     }
 

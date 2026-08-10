@@ -384,8 +384,7 @@ final class VoiceCommandManager: ObservableObject {
             drumVol: drumVol,
             bassVol: bassVol
         )
-        PresetStore.shared.add(preset)
-        let number = PresetStore.shared.triggerNumber(for: preset) ?? 0
+        let number = PresetStore.shared.add(preset)
         statusLine = "Saved \"\(preset.name)\" as song #\(number) — in OnSong: Ch 16 · PC \(number)."
         AppModel.shared.addLog("Voice: saved preset \"\(preset.name)\" (#\(number))")
         haptic()

@@ -22,6 +22,9 @@ struct PatternRef: Codable, Hashable {
 }
 
 /// A named, complete song setup: patterns + key + tempo + volumes.
+/// `triggerNumber` is PERMANENT: assigned once at first save, kept across
+/// re-saves, never shifted or reused when other songs are deleted. This is
+/// the number OnSong references (Ch 16 PC), so it must never move.
 struct SongPreset: Identifiable, Codable, Hashable {
     var id = UUID()
     var name: String
@@ -31,11 +34,37 @@ struct SongPreset: Identifiable, Codable, Hashable {
     var tempoBPM: Int?
     var drumVol: Int?
     var bassVol: Int?
+    var triggerNumber: Int = 0 // 0 = legacy/unassigned; migration fills it
+
+    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, triggerNumber: Int = 0) {
+        self.id = id
+        self.name = name
+        self.patterns = patterns
+        self.keyProgram = keyProgram
+        self.keyLabel = keyLabel
+        self.tempoBPM = tempoBPM
+        self.drumVol = drumVol
+        self.bassVol = bassVol
+        self.triggerNumber = triggerNumber
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        patterns = try c.decode([PatternRef].self, forKey: .patterns)
+        keyProgram = try c.decodeIfPresent(Int.self, forKey: .keyProgram)
+        keyLabel = try c.decodeIfPresent(String.self, forKey: .keyLabel)
+        tempoBPM = try c.decodeIfPresent(Int.self, forKey: .tempoBPM)
+        drumVol = try c.decodeIfPresent(Int.self, forKey: .drumVol)
+        bassVol = try c.decodeIfPresent(Int.self, forKey: .bassVol)
+        triggerNumber = try c.decodeIfPresent(Int.self, forKey: .triggerNumber) ?? 0
+    }
 }
 
 /// The song database. Presets are triggered from OnSong with a single
-/// program change on MIDI channel 16: PC N loads preset N (1-based),
-/// applying every stored command to the C1 in sequence.
+/// program change on MIDI channel 16: PC N loads the preset whose permanent
+/// triggerNumber is N, applying every stored command to the C1 in sequence.
 @MainActor
 final class PresetStore: ObservableObject {
     static let shared = PresetStore()
@@ -47,36 +76,42 @@ final class PresetStore: ObservableObject {
 
     // MARK: - CRUD
 
-    func add(_ preset: SongPreset) {
+    /// Saves a preset and returns its permanent trigger number.
+    /// Re-saving an existing name keeps that song's number; a brand-new name
+    /// gets the next unused number (max + 1). Numbers are never reused after
+    /// a delete, so an OnSong trigger can never silently point at the wrong song.
+    @discardableResult
+    func add(_ preset: SongPreset) -> Int {
         if let idx = presets.firstIndex(where: { $0.name.lowercased() == preset.name.lowercased() }) {
             var updated = preset
-            updated.id = presets[idx].id // keep stable identity/number on re-save
+            updated.id = presets[idx].id
+            updated.triggerNumber = presets[idx].triggerNumber // permanent
             presets[idx] = updated
+            save()
+            return updated.triggerNumber
         } else {
-            presets.append(preset)
+            var newPreset = preset
+            newPreset.triggerNumber = (presets.map(\.triggerNumber).max() ?? 0) + 1
+            presets.append(newPreset)
+            save()
+            return newPreset.triggerNumber
         }
-        save()
     }
 
     func delete(at offsets: IndexSet) {
-        presets.remove(atOffsets: offsets)
+        presets.remove(atOffsets: offsets) // numbers of remaining songs never shift
         save()
-    }
-
-    func triggerNumber(for preset: SongPreset) -> Int? {
-        guard let idx = presets.firstIndex(of: preset) else { return nil }
-        return idx + 1
     }
 
     // MARK: - Triggering
 
-    /// OnSong entry point: Ch 16, PC N.
+    /// OnSong entry point: Ch 16, PC N. Looks up by permanent trigger number.
     func apply(program: Int) {
-        guard (1...presets.count).contains(program) else {
+        guard let preset = presets.first(where: { $0.triggerNumber == program }) else {
             AppModel.shared.addLog("Preset trigger: no preset #\(program)")
             return
         }
-        apply(presets[program - 1])
+        apply(preset)
     }
 
     /// Sends every stored command to the C1 with small gaps so BLE writes land cleanly.
@@ -131,7 +166,17 @@ final class PresetStore: ObservableObject {
 
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
-              let decoded = try? JSONDecoder().decode([SongPreset].self, from: data) else { return }
+              var decoded = try? JSONDecoder().decode([SongPreset].self, from: data) else { return }
+        // Migration: legacy presets saved before permanent numbers existed
+        // arrive with triggerNumber 0 — assign 1...N in their current order.
+        var next = (decoded.map(\.triggerNumber).max() ?? 0) + 1
+        var migrated = false
+        for i in decoded.indices where decoded[i].triggerNumber == 0 {
+            decoded[i].triggerNumber = next
+            next += 1
+            migrated = true
+        }
         presets = decoded
+        if migrated { save() }
     }
 }
