@@ -108,7 +108,7 @@ struct SongSetupView: View {
     // MARK: - Candidate
 
     private var candidateSection: some View {
-        Section("Current Pick") {
+        Section("Now Playing") {
             if let c = voice.candidate {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(c.name).font(.title3).bold()

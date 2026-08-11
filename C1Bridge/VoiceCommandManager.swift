@@ -537,14 +537,21 @@ final class VoiceCommandManager: ObservableObject {
         }
     }
 
+    /// Direct Add (Now Playing section, and voice "add" outside sampling): the
+    /// candidate goes straight into the recipe on ITS paddle — same rules as a
+    /// review placement: one pattern per paddle, the current tempo locks to the
+    /// song, and replacing a different pattern asks "are you sure?" first.
     func addCandidate() {
         guard let c = candidate else {
             statusLine = "Nothing to add yet — say a pattern name first."
             return
         }
-        items.append(c)
-        statusLine = "Added \(c.name) (\(c.midiLabel)) — \(items.count) pattern\(items.count == 1 ? "" : "s") in this song."
-        haptic()
+        if let existing = items.first(where: { $0.paddle == c.paddle }), existing != c {
+            pendingReplace = PatternPick(pattern: c, tempoBPM: tempoBPM)
+            statusLine = "Replace \(existing.name) on the \(c.paddle) paddle with \(c.name)? Say yes or no."
+            return
+        }
+        placeInRecipe(c, lockedTempo: tempoBPM, confirmedReplace: false)
     }
 
     func removeLast() {
@@ -839,7 +846,10 @@ final class VoiceCommandManager: ObservableObject {
         }
         firePattern(p)
         let verb = replaced ? "Replaced —" : "Added"
-        statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)).\(tempoNote) Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End." + connWarning
+        let reviewTail = (sampleMode == .reviewing && !possibles.isEmpty)
+            ? " Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End."
+            : ""
+        statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)).\(tempoNote)\(reviewTail)" + connWarning
         AppModel.shared.addLog("Voice: \(replaced ? "replaced" : "added") \(p.name) on \(p.paddle) paddle\(lockedTempo.map { " (tempo \($0))" } ?? "")")
         haptic()
     }
