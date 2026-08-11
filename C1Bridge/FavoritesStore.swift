@@ -33,6 +33,15 @@ final class FavoritesStore: ObservableObject {
         favorites.first { $0.channel == p.channel && $0.program == p.program }?.tempoBPM
     }
 
+    /// Retunes an existing favorite's locked tempo in place (keeps starred order).
+    /// Used when Rich speaks a fresh suggested tempo for a pattern he already
+    /// starred — the new explicit tempo should win, not rot behind the old lock.
+    func updateTempo(_ bpm: Int, for p: C1Pattern) {
+        guard let i = favorites.firstIndex(where: { $0.channel == p.channel && $0.program == p.program }) else { return }
+        favorites[i].tempoBPM = bpm
+        save()
+    }
+
     func remove(_ p: C1Pattern) {
         favorites.removeAll { $0.channel == p.channel && $0.program == p.program }
         save()

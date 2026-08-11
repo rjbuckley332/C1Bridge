@@ -33,8 +33,9 @@ struct PatternPick: Identifiable, Hashable {
 ///                                                the current tempo INTO the favorite, and choosing
 ///                                                a favorite later updates the tempo field to match
 ///   "sample guitar favorites"                 -> sweep only your starred patterns for that instrument
-///   "suggested tempo 92"                      -> bank the current pattern's ideal tempo (applies
-///                                                whenever the pattern is chosen)
+///   "suggested tempo 92"                      -> set the current pattern's ideal tempo: applies
+///                                                immediately, banks it for future landings, and
+///                                                retunes the favorite lock if it's starred
 ///   "stop listening"                          -> mic off
 @MainActor
 final class VoiceCommandManager: ObservableObject {
@@ -271,11 +272,23 @@ final class VoiceCommandManager: ObservableObject {
         }
 
         // Suggested tempo banking: "suggested tempo 92" while a pattern plays.
+        // Applies IMMEDIATELY (he's listening to the pattern right now — that's
+        // how he judges the tempo), and banks it for every future landing.
         if norm.contains("suggest") {
             if let n = Self.firstInt(in: norm), (40...294).contains(n), let c = candidate {
                 SuggestedTempoStore.shared.set(n, for: c)
-                statusLine = "Suggested tempo for \(c.name): \(n) BPM — Add will update the tempo field to \(n) and lock the pair."
-                AppModel.shared.addLog("Voice: suggested tempo \(n) for \(c.name) (\(c.midiLabel))")
+                // A fresh explicit tempo beats a stale favorite lock: if this
+                // pattern is starred, retune the lock too instead of letting it
+                // silently override the banked tempo forever.
+                var note = ""
+                if FavoritesStore.shared.isFavorite(c) {
+                    FavoritesStore.shared.updateTempo(n, for: c)
+                    note = " — favorite lock retuned to \(n) too"
+                }
+                tempoBPM = n
+                MIDIHandler.triggerTempo(bpm: n)
+                statusLine = "\(c.name) now at \(n) BPM — banked as its suggested tempo\(note)."
+                AppModel.shared.addLog("Voice: suggested tempo \(n) for \(c.name) (\(c.midiLabel))\(note)")
                 haptic()
             } else {
                 statusLine = "Say \"suggested tempo 92\" while a pattern is playing."
@@ -438,7 +451,17 @@ final class VoiceCommandManager: ObservableObject {
     func audition(_ p: C1Pattern) {
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
-        reapplyTempoIfSet()
+        if let t = carriedTempo(for: p) {
+            // Same rule as the sampling sweep: a pattern with its own tempo
+            // (favorite lock, else banked suggested) brings that tempo with it.
+            tempoBPM = t
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                MIDIHandler.triggerTempo(bpm: t)
+            }
+        } else {
+            reapplyTempoIfSet()
+        }
         statusLine = "🎸 \(p.name) — \(p.subtitle) · \(p.midiLabel)." + connWarning
         haptic()
     }
