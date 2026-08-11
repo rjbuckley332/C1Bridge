@@ -68,8 +68,12 @@ final class VoiceCommandManager: ObservableObject {
     @Published private(set) var sampleInstrument: String?
     /// A pattern awaiting "are you sure?" confirmation before replacing the paddle's current choice.
     private var pendingReplace: PatternPick?
-    /// True while sweeping a favorites-only pool (shows in status text).
-    private var samplingFavorites = false
+    /// Whether the sweep is filtered to favorites only. Favorites sweeps run in
+    /// NUMERICAL (program) order — Rich's filter-box rule (build 29).
+    @Published private(set) var samplingFavorites = false
+    /// The paddle of the current sweep — remembered so the favorites filter can
+    /// rebuild the pool mid-sweep.
+    private var samplePaddle = "Front"
 
     // MARK: - Speech internals
 
@@ -360,6 +364,14 @@ final class VoiceCommandManager: ObservableObject {
         // Mode-scoped commands win over the general grammar.
         switch sampleMode {
         case .sampling:
+            if ["favorites", "favorites only", "show favorites", "filter favorites", "just favorites", "favs only"].contains(norm) {
+                if samplingFavorites { statusLine = "Already sweeping favorites." } else { toggleSampleFavorites() }
+                return
+            }
+            if ["all patterns", "show all", "no filter", "everything"].contains(norm) {
+                if samplingFavorites { toggleSampleFavorites() } else { statusLine = "Already sweeping all patterns." }
+                return
+            }
             if ["add", "add it", "add to list", "add to possibles", "possible", "keep", "keep it", "shortlist it"].contains(norm) {
                 addPossible(); return
             }
@@ -556,6 +568,36 @@ final class VoiceCommandManager: ObservableObject {
 
     /// "sample guitar starting at 12" — builds the pool (one instrument, one paddle,
     /// sorted by program), clears any stale Possible List, and auditions the first pattern.
+    /// The sweep pool for an instrument+paddle: the full library in program
+    /// order, or just the favorites — also in NUMERICAL (program) order.
+    private func currentPool(instrument: String, paddle: String, favoritesOnly: Bool) -> [C1Pattern] {
+        if favoritesOnly {
+            return FavoritesStore.shared.pool(instrument: instrument, paddle: paddle)
+                .sorted { $0.program < $1.program }
+        }
+        return PatternLibrary.all
+            .filter { $0.instrument == instrument && $0.paddle == paddle }
+            .sorted { $0.program < $1.program }
+    }
+
+    /// The sampling filter box (build 29): flip the live sweep between ALL
+    /// patterns and favorites-only, always numerical. Restarts the sweep at
+    /// the top of the new pool so position is never ambiguous.
+    func toggleSampleFavorites() {
+        guard sampleMode == .sampling, let inst = sampleInstrument else { return }
+        let newValue = !samplingFavorites
+        let pool = currentPool(instrument: inst, paddle: samplePaddle, favoritesOnly: newValue)
+        guard !pool.isEmpty else {
+            statusLine = "No \(inst.lowercased()) favorites yet — say \"favorite\" while sampling to star some."
+            return
+        }
+        samplingFavorites = newValue
+        samplePool = pool
+        sampleIndex = 0
+        auditionSampled(pool[0])
+        statusLine = "\(samplingStatus): \(pool[0].name). Say Add, Next, or End."
+    }
+
     private func startSampling(command: String) {
         var instrument: String?
         var paddle = "Front" // sampling is done on the Front paddle; rear is chosen at recipe time
@@ -585,14 +627,7 @@ final class VoiceCommandManager: ObservableObject {
         }
         // A melodic sweep does NOT end a live drum sweep — both stay live so
         // he hears pattern + groove together while nudging either (build 28).
-        let pool: [C1Pattern]
-        if favsOnly {
-            pool = FavoritesStore.shared.pool(instrument: inst, paddle: paddle)
-        } else {
-            pool = PatternLibrary.all
-                .filter { $0.instrument == inst && $0.paddle == paddle }
-                .sorted { $0.program < $1.program }
-        }
+        let pool = currentPool(instrument: inst, paddle: paddle, favoritesOnly: favsOnly)
         guard !pool.isEmpty else {
             statusLine = favsOnly
                 ? "No \(inst) favorites yet — say \"favorite\" while sampling to star some."
@@ -606,6 +641,7 @@ final class VoiceCommandManager: ObservableObject {
         samplePool = pool
         sampleInstrument = inst
         samplingFavorites = favsOnly
+        samplePaddle = paddle
         sampleIndex = min(max(startAt, 1), pool.count) - 1
         sampleMode = .sampling
         auditionSampled(pool[sampleIndex])

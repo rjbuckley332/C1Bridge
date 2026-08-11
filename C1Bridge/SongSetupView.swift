@@ -295,6 +295,15 @@ struct SongSetupView: View {
                 if !voice.samplePool.isEmpty {
                     let p = voice.samplePool[min(voice.sampleIndex, voice.samplePool.count - 1)]
                     samplingHeader(p, title: "Sampling \(voice.sampleInstrument ?? "") \(voice.sampleIndex + 1) of \(voice.samplePool.count)", tempo: voice.tempoBPM)
+                    Button {
+                        voice.toggleSampleFavorites()
+                    } label: {
+                        Label(voice.samplingFavorites ? "Favorites · numerical" : "All patterns",
+                              systemImage: voice.samplingFavorites ? "star.fill" : "line.3.horizontal.decrease.circle")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(voice.samplingFavorites ? .yellow : .secondary)
                     HStack(spacing: 10) {
                         Button("Back") { voice.sampleBack() }
                         Button("Next") { voice.sampleNext() }
