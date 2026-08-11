@@ -118,19 +118,29 @@ final class PresetStore: ObservableObject {
         apply(preset)
     }
 
-    /// Sends every stored command to the C1 with small gaps so BLE writes land cleanly.
+    /// Sends every stored command to the C1. The universal tempo rule applies
+    /// here too: each pattern select is answered with the preset's tempo (when
+    /// it has one), sent after the C1 settles from loading the pattern's own
+    /// default tempo. The tempo field follows so the UI stays truthful.
     func apply(_ preset: SongPreset) {
         AppModel.shared.addLog("Applying preset \"\(preset.name)\"")
+        if let bpm = preset.tempoBPM { VoiceCommandManager.shared.notePresetTempo(bpm) }
         Task { @MainActor in
             for p in preset.patterns {
                 MIDIHandler.trigger(channel: p.channel, program: p.program)
+                if let bpm = preset.tempoBPM {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    MIDIHandler.triggerTempo(bpm: bpm)
+                }
                 try? await Task.sleep(nanoseconds: 120_000_000)
             }
             if let key = preset.keyProgram {
                 MIDIHandler.trigger(channel: 7, program: key)
                 try? await Task.sleep(nanoseconds: 120_000_000)
             }
-            if let bpm = preset.tempoBPM {
+            // A preset with no patterns still gets its tempo — there was no
+            // pattern select to answer, so send it on its own.
+            if preset.patterns.isEmpty, let bpm = preset.tempoBPM {
                 MIDIHandler.triggerTempo(bpm: bpm)
                 try? await Task.sleep(nanoseconds: 120_000_000)
             }

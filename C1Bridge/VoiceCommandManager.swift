@@ -450,27 +450,21 @@ final class VoiceCommandManager: ObservableObject {
 
     func audition(_ p: C1Pattern) {
         candidate = p
-        MIDIHandler.trigger(channel: p.channel, program: p.program)
-        if let t = carriedTempo(for: p) {
-            // Same rule as the sampling sweep: a pattern with its own tempo
-            // (favorite lock, else banked suggested) brings that tempo with it.
-            tempoBPM = t
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                MIDIHandler.triggerTempo(bpm: t)
-            }
-        } else {
-            reapplyTempoIfSet()
-        }
+        // A pattern with its own tempo (favorite lock, else banked suggested)
+        // loads it into the field first — then the universal rule sends it.
+        if let t = carriedTempo(for: p) { tempoBPM = t }
+        firePattern(p)
         statusLine = "🎸 \(p.name) — \(p.subtitle) · \(p.midiLabel)." + connWarning
         haptic()
     }
 
-    /// The C1 loads each pattern's OWN default tempo on selection, stomping whatever
-    /// tempo Rich set. Re-assert his tempo shortly after every pick so the pattern
-    /// plays at HIS speed. Voice and the manual stepper both route through tempoBPM,
-    /// so this covers both. Extend to key/volumes if those turn out to drift too.
-    private func reapplyTempoIfSet() {
+    /// THE RULE (Rich, build 26): every pattern select sent to the C1 is answered
+    /// with the tempo field's value whenever the field has one — no assumptions
+    /// about what the C1 kept. It loads each pattern's OWN default tempo on
+    /// selection, so ours goes in 250ms later to win the race. Every pattern
+    /// send in the app routes through here.
+    private func firePattern(_ p: C1Pattern) {
+        MIDIHandler.trigger(channel: p.channel, program: p.program)
         guard let bpm = tempoBPM else { return }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
@@ -559,18 +553,10 @@ final class VoiceCommandManager: ObservableObject {
 
     private func auditionSampled(_ p: C1Pattern) {
         candidate = p
-        MIDIHandler.trigger(channel: p.channel, program: p.program)
-        if let t = carriedTempo(for: p) {
-            // Choosing a favorite (or any pattern with a banked tempo) updates
-            // the tempo field — the pattern and its tempo arrive together.
-            tempoBPM = t
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                MIDIHandler.triggerTempo(bpm: t)
-            }
-        } else {
-            reapplyTempoIfSet()
-        }
+        // Choosing a favorite (or any pattern with a banked tempo) loads its
+        // tempo into the field — then the universal rule sends it.
+        if let t = carriedTempo(for: p) { tempoBPM = t }
+        firePattern(p)
         if !BLEManager.shared.isConnected {
             statusLine = "⚠️ C1 not connected — tap Scan, then keep going."
         }
@@ -642,19 +628,12 @@ final class VoiceCommandManager: ObservableObject {
         }
     }
 
-    /// Auditions a shortlist pick at ITS locked tempo (falling back to the
-    /// currently-held tempo when the pick has none).
+    /// Auditions a shortlist pick: its locked tempo loads into the field first
+    /// (when it has one) — then the universal rule sends it.
     private func auditionPick(_ pick: PatternPick) {
         candidate = pick.pattern
-        MIDIHandler.trigger(channel: pick.pattern.channel, program: pick.pattern.program)
-        if let bpm = pick.tempoBPM {
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                MIDIHandler.triggerTempo(bpm: bpm)
-            }
-        } else {
-            reapplyTempoIfSet()
-        }
+        if let bpm = pick.tempoBPM { tempoBPM = bpm }
+        firePattern(pick.pattern)
         if !BLEManager.shared.isConnected {
             statusLine = "⚠️ C1 not connected — tap Scan, then keep going."
         }
@@ -743,26 +722,21 @@ final class VoiceCommandManager: ObservableObject {
             items.append(p)
         }
         candidate = p
-        MIDIHandler.trigger(channel: p.channel, program: p.program)
         // Tempo and pattern land in the recipe TOGETHER: the pick's locked
         // tempo becomes the song's tempo (a song has one tempo — last placement
-        // wins, and the status says so when it changes).
+        // wins, and the status says so when it changes). Field first — then the
+        // universal rule sends pattern+tempo together.
         var tempoNote = ""
         if let bpm = lockedTempo {
             let old = tempoBPM
             tempoBPM = bpm
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                MIDIHandler.triggerTempo(bpm: bpm)
-            }
             if old == bpm {
                 tempoNote = " Tempo stays \(bpm)."
             } else {
                 tempoNote = " Tempo \(old.map(String.init) ?? "—") → \(bpm) to match \(p.name)."
             }
-        } else {
-            reapplyTempoIfSet()
         }
+        firePattern(p)
         let verb = replaced ? "Replaced —" : "Added"
         statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)).\(tempoNote) Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End." + connWarning
         AppModel.shared.addLog("Voice: \(replaced ? "replaced" : "added") \(p.name) on \(p.paddle) paddle\(lockedTempo.map { " (tempo \($0))" } ?? "")")
@@ -822,6 +796,10 @@ final class VoiceCommandManager: ObservableObject {
         statusLine = "Key: \(label) — Ch 7 · PC \(program)"
         haptic()
     }
+
+    /// Keeps the tempo field truthful when a preset applied its own tempo
+    /// (presets fire from OnSong, outside the voice flow).
+    func notePresetTempo(_ bpm: Int) { tempoBPM = bpm }
 
     func setTempo(_ bpm: Int) {
         tempoBPM = bpm
