@@ -37,8 +37,9 @@ struct PatternPick: Identifiable, Hashable {
 ///                                                immediately, banks it for future landings, and
 ///                                                retunes the favorite lock if it's starred
 ///   "sample drums"                            -> special case: sweep drum grooves against the
-///                                                current paddle's pattern (matched by ear);
-///                                                no favorites, no tempo of their own
+///                                                current paddle's pattern (matched by ear); runs
+///                                                LIVE alongside melodic sampling — steer it with
+///                                                "drums next" / "add drums" / "end drums"
 ///   "stop listening"                          -> mic off
 @MainActor
 final class VoiceCommandManager: ObservableObject {
@@ -274,28 +275,52 @@ final class VoiceCommandManager: ObservableObject {
             return
         }
 
-        // Drum sampling owns Next/Back/Add/End while it's active — and refuses
-        // favorites and suggested tempo outright: drums never carry either.
-        if drumSampling {
-            if ["next", "next one"].contains(norm) { drumNext(); return }
-            if ["back", "previous", "go back"].contains(norm) { drumBack(); return }
-            if ["add", "add it", "add to song", "add to recipe", "add drum", "add drums",
-                "keep", "keep it", "use it", "use this", "thats the one", "that one"].contains(norm) {
-                addDrumToSong(); return
+        // Drums and melodic sampling run LIVE AT THE SAME TIME (build 28):
+        // he hears a pattern and a groove together and nudges either one.
+        // Drum-prefixed commands ("drums next", "add drums", "end drums")
+        // always hit the drum sweep; plain Next/Back/Add/End belong to the
+        // melodic sweep when it's live, else to the drums.
+        if norm.contains("drum") {
+            if ["drums next", "next drum", "next drums", "drum next", "drums next one",
+                "next groove", "drums next groove"].contains(norm) {
+                if drumSampling { drumNext() } else { statusLine = "Not sampling drums — say \"sample drums\" first." }
+                return
             }
-            if ["end", "done", "finish", "stop", "exit", "end drums"].contains(norm) {
-                endDrumSampling(); return
+            if ["drums back", "back drums", "drum back", "drums previous", "previous drum",
+                "last drum", "drums last", "last groove"].contains(norm) {
+                if drumSampling { drumBack() } else { statusLine = "Not sampling drums — say \"sample drums\" first." }
+                return
             }
+            if ["add drums", "add drum", "add the drums", "drums add", "add drums to song",
+                "add drum to song", "add drums to recipe", "add drum to recipe", "keep drums",
+                "keep the drums", "use these drums", "use this drum"].contains(norm) {
+                if drumSampling { addDrumToSong() } else { statusLine = "Not sampling drums — say \"sample drums\" first." }
+                return
+            }
+            if ["end drums", "drums end", "stop drums", "done drums", "finish drums", "drums done",
+                "end drum sampling", "stop drum sampling"].contains(norm) {
+                if drumSampling { endDrumSampling() } else { statusLine = "Not sampling drums." }
+                return
+            }
+            // Refuse only DRUM-targeted favorites/tempo: drums never carry
+            // either. Plain "favorite" / "suggested tempo" still apply to the
+            // melodic pattern that's playing.
             if norm.contains("suggest") {
                 statusLine = "Drums don't carry tempo — they play at the song's tempo."
                 return
             }
-            if ["favorite", "favourite", "star", "star this", "like", "like it", "like this",
-                "love it", "love this", "fav", "add favorite", "mark favorite", "thats a keeper",
-                "unfavorite", "unfavourite", "unstar", "unstar this", "remove favorite", "not a favorite"].contains(norm) {
+            if ["favorite", "favourite", "star", "like", "love", "fav", "keeper"].contains(where: { norm.contains($0) }) {
                 statusLine = "Drums don't have favorites."
                 return
             }
+        }
+        // Plain sweep commands with ONLY the drum sweep live go to the drums.
+        if drumSampling, sampleMode == .off {
+            if ["next", "next one"].contains(norm) { drumNext(); return }
+            if ["back", "previous", "go back"].contains(norm) { drumBack(); return }
+            if ["add", "add it", "add to song", "add to recipe", "keep", "keep it",
+                "use it", "use this", "thats the one", "that one"].contains(norm) { addDrumToSong(); return }
+            if ["end", "done", "finish", "stop", "exit"].contains(norm) { endDrumSampling(); return }
         }
 
         // Suggested tempo banking: "suggested tempo 92" while a pattern plays.
@@ -558,7 +583,8 @@ final class VoiceCommandManager: ObservableObject {
             startDrumSampling(paddle: paddle)
             return
         }
-        drumSampling = false // a melodic sweep takes the Next/Add vocabulary back
+        // A melodic sweep does NOT end a live drum sweep — both stay live so
+        // he hears pattern + groove together while nudging either (build 28).
         let pool: [C1Pattern]
         if favsOnly {
             pool = FavoritesStore.shared.pool(instrument: inst, paddle: paddle)
@@ -816,9 +842,9 @@ final class VoiceCommandManager: ObservableObject {
             statusLine = "No drum grooves on the \(paddleCtx) paddle."
             return
         }
-        // Drums own the Next/Add vocabulary while active; the melodic Possible
-        // List survives — this only leaves sweep/review mode.
-        sampleMode = .off
+        // The drum sweep does NOT end a live melodic sweep — both stay live
+        // (build 28). Drum-prefixed voice commands always route to the drums;
+        // plain Next/Add belong to the melodic sweep while it's running.
         drumPaddle = paddleCtx
         drumPool = pool
         drumIndex = 0
