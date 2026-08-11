@@ -283,7 +283,11 @@ final class VoiceCommandManager: ObservableObject {
                 endReview(); return
             }
         case .off:
-            break
+            // Stray mode commands get a hint instead of a confusing pattern error.
+            if ["next", "next one", "back", "previous", "remove", "use front", "use rear", "end"].contains(norm) {
+                statusLine = "\"\(norm.capitalized)\" only works while sampling or reviewing — say \"sample guitar\" to start."
+                return
+            }
         }
 
         if let name = Self.extractAfter(norm, prefixes: ["save as", "save this as", "save song as", "save this song as", "call this", "name this"]),
