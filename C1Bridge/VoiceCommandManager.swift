@@ -769,7 +769,8 @@ final class VoiceCommandManager: ObservableObject {
     }
 
     static func parseTempo(_ norm: String) -> Int? {
-        guard norm.contains("tempo") || norm.contains("bpm") else { return nil }
+        let tokens = norm.split(separator: " ")
+        guard tokens.contains("tempo") || tokens.contains("temp") || tokens.contains("bpm") else { return nil }
         guard let n = firstInt(in: norm), (40...240).contains(n) else { return nil }
         return n
     }
