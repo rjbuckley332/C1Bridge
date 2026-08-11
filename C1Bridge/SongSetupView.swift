@@ -292,8 +292,8 @@ struct SongSetupView: View {
                     HStack(spacing: 10) {
                         Button("Back") { voice.sampleBack() }
                         Button("Next") { voice.sampleNext() }
-                        Button("Add") { voice.addPossible() }
                             .buttonStyle(.borderedProminent)
+                        Button("Add") { voice.addPossible() }
                         Button("End") { voice.endSampling() }
                             .tint(.red)
                     }
