@@ -22,6 +22,8 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     private var writeGeneration = 0
     private var currentWriteName: String?
     private var manualDisconnectRequested = false
+    /// Set when the user deliberately disconnects; auto-heal stays out of the way until they scan again.
+    private var userRequestedDisconnect = false
     private let maxPendingWrites = 64
     private let writeTimeoutSeconds = 1.5
 
@@ -36,6 +38,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     // MARK: - Manual Disconnect
     func disconnect() {
+        userRequestedDisconnect = true
         guard let peripheral = connectedPeripheral else {
             AppModel.shared.addLog("Disconnect failed: No peripheral stored")
             return
@@ -46,14 +49,34 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         AppModel.shared.addLog("Manual disconnect requested")
     }
 
+    // MARK: - Self-heal
+    /// Called on launch and whenever the app becomes active. If the link is down
+    /// (and the user didn't deliberately drop it), reconnect on our own: re-pend a
+    /// connect if we still hold the peripheral, otherwise scan (scan auto-connects
+    /// on discovery). Kills the "install restart / guitar sleep silently stranded me" class.
+    func ensureConnected() {
+        guard !isConnected, !userRequestedDisconnect else { return }
+        if let p = connectedPeripheral {
+            AppModel.shared.addLog("Auto-reconnect: re-pending connect to \(p.name ?? "C1")")
+            central.connect(p, options: nil)
+            return
+        }
+        guard central.state == .poweredOn else {
+            shouldScanWhenPoweredOn = true
+            return
+        }
+        if !isScanning {
+            AppModel.shared.addLog("Auto-reconnect: scanning for C1")
+            startScan()
+        }
+    }
+
     // MARK: - CBCentralManagerDelegate
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
         case .poweredOn:
             AppModel.shared.addLog("Bluetooth powered on")
-            if shouldScanWhenPoweredOn {
-                startScan()
-            }
+            ensureConnected()
         case .poweredOff:
             isConnected = false
             isScanning = false
@@ -184,6 +207,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
 
     // MARK: - Scanning
     func startScan() {
+        userRequestedDisconnect = false
         shouldScanWhenPoweredOn = true
         guard central.state == .poweredOn else {
             AppModel.shared.addLog("Scan waiting for Bluetooth: \(central.state.rawValue)")

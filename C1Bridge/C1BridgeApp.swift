@@ -19,6 +19,10 @@ struct C1BridgeApp: App {
             NavigationStack {
                 ContentView()
             }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+                // Heal a dropped C1 link (install restarts, guitar sleep) without a Scan tap.
+                BLEManager.shared.ensureConnected()
+            }
         }
     }
 }
