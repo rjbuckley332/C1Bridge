@@ -1072,8 +1072,15 @@ final class VoiceCommandManager: ObservableObject {
         var t = s.lowercased()
         t = t.replacingOccurrences(of: #"[^\w\s#]"#, with: "", options: .regularExpression)
         t = replaceNumberWords(t)
+        t = replaceMishearings(t)
         t = t.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
         return t.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Speech-to-text mishearings we accept as their intended words:
+    /// "base" -> "bass" ("sample base" is always "sample bass").
+    private static func replaceMishearings(_ s: String) -> String {
+        s.replacingOccurrences(of: #"\bbase\b"#, with: "bass", options: .regularExpression)
     }
 
     /// Drops natural leading filler so "in the key of D", "a tempo of 130",
