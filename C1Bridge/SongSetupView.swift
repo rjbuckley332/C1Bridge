@@ -19,6 +19,7 @@ struct SongSetupView: View {
         List {
             voiceSection
             samplingSection
+            drumSection
             if !searchText.isEmpty { searchSection }
             if voice.candidate != nil { candidateSection }
             songSection
@@ -258,6 +259,9 @@ struct SongSetupView: View {
         for (i, p) in voice.items.enumerated() {
             lines.append("\(i + 1). \(p.name) (\(p.subtitle)) — Ch \(p.channel) · PC \(p.program)")
         }
+        for d in voice.drumItems {
+            lines.append("\(d.paddle) drums: \(d.name) — Ch \(d.channel) · PC \(d.program)")
+        }
         if let k = voice.keyLabel, let kp = voice.keyProgram {
             lines.append("Key \(k) — Ch 7 · PC \(kp)")
         }
@@ -328,6 +332,53 @@ struct SongSetupView: View {
             }
         } header: {
             Text(voice.sampleMode == .reviewing ? "Possible List — Review" : "Pattern Sampling")
+        }
+    }
+
+    /// Drums are a special case: matched by ear to the current paddle's melodic
+    /// pattern. No favorites, no tempo of their own — the pane has its own
+    /// Add-to-song, writing one drum slot per paddle.
+    private var drumSection: some View {
+        Section {
+            if voice.drumSampling, !voice.drumPool.isEmpty {
+                let d = voice.drumPool[min(voice.drumIndex, voice.drumPool.count - 1)]
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Matching the \(voice.drumPaddle) paddle — groove \(voice.drumIndex + 1) of \(voice.drumPool.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Text(d.name).font(.headline)
+                        Spacer()
+                        if let t = voice.tempoBPM {
+                            Text("plays at \(t)")
+                                .font(.caption)
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+                HStack(spacing: 10) {
+                    Button("Back") { voice.drumBack() }
+                    Button("Next") { voice.drumNext() }
+                        .buttonStyle(.borderedProminent)
+                    Button("Add to Song") { voice.addDrumToSong() }
+                    Button("End") { voice.endDrumSampling() }
+                        .tint(.red)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button("Sample Drums") { voice.startDrumSampling() }
+                if !voice.drumItems.isEmpty {
+                    ForEach(voice.drumItems, id: \.program) { d in
+                        Text("\(d.paddle): \(d.name)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Drums")
+        } footer: {
+            Text("Matched by ear to the current paddle's pattern. No tempo lives on a drum — it plays at the song tempo. In performance you start it from the paddle.")
         }
     }
 

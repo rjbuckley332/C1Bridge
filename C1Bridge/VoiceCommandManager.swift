@@ -36,6 +36,9 @@ struct PatternPick: Identifiable, Hashable {
 ///   "suggested tempo 92"                      -> set the current pattern's ideal tempo: applies
 ///                                                immediately, banks it for future landings, and
 ///                                                retunes the favorite lock if it's starred
+///   "sample drums"                            -> special case: sweep drum grooves against the
+///                                                current paddle's pattern (matched by ear);
+///                                                no favorites, no tempo of their own
 ///   "stop listening"                          -> mic off
 @MainActor
 final class VoiceCommandManager: ObservableObject {
@@ -269,6 +272,30 @@ final class VoiceCommandManager: ObservableObject {
             if sampleMode != .off { sampleMode = .off }
             statusLine = "Possible List cleared."
             return
+        }
+
+        // Drum sampling owns Next/Back/Add/End while it's active — and refuses
+        // favorites and suggested tempo outright: drums never carry either.
+        if drumSampling {
+            if ["next", "next one"].contains(norm) { drumNext(); return }
+            if ["back", "previous", "go back"].contains(norm) { drumBack(); return }
+            if ["add", "add it", "add to song", "add to recipe", "add drum", "add drums",
+                "keep", "keep it", "use it", "use this", "thats the one", "that one"].contains(norm) {
+                addDrumToSong(); return
+            }
+            if ["end", "done", "finish", "stop", "exit", "end drums"].contains(norm) {
+                endDrumSampling(); return
+            }
+            if norm.contains("suggest") {
+                statusLine = "Drums don't carry tempo — they play at the song's tempo."
+                return
+            }
+            if ["favorite", "favourite", "star", "star this", "like", "like it", "like this",
+                "love it", "love this", "fav", "add favorite", "mark favorite", "thats a keeper",
+                "unfavorite", "unfavourite", "unstar", "unstar this", "remove favorite", "not a favorite"].contains(norm) {
+                statusLine = "Drums don't have favorites."
+                return
+            }
         }
 
         // Suggested tempo banking: "suggested tempo 92" while a pattern plays.
@@ -524,6 +551,14 @@ final class VoiceCommandManager: ObservableObject {
             statusLine = "Sample which instrument? Say \"sample guitar\", \"sample piano\", \"sample bass\", or \"sample drums\"."
             return
         }
+        // Drums are a special case: matched by ear to the current paddle's
+        // pattern, with their own panel — no Possible List, no favorites,
+        // no tempo of their own.
+        if inst == "Drums" {
+            startDrumSampling(paddle: paddle)
+            return
+        }
+        drumSampling = false // a melodic sweep takes the Next/Add vocabulary back
         let pool: [C1Pattern]
         if favsOnly {
             pool = FavoritesStore.shared.pool(instrument: inst, paddle: paddle)
@@ -751,6 +786,96 @@ final class VoiceCommandManager: ObservableObject {
             : "Review ended — Possible List kept (\(possibles.count)). Say \"review\" to jump back in, or \"clear possibles\"."
     }
 
+    // MARK: - Drums (special case)
+
+    /// Drums are matched BY EAR to the melodic pattern on a paddle: sweep the
+    /// grooves while that pattern keeps playing, Add pairs the one that fits.
+    /// Special-case rules (Rich, build 27): no favorites, no suggested tempo,
+    /// no Possible List — the drum pane's own Add writes the paddle's drum slot.
+    @Published private(set) var drumSampling = false
+    @Published private(set) var drumPool: [C1Pattern] = []
+    @Published private(set) var drumIndex = 0
+    @Published private(set) var drumPaddle = "Front"
+    /// The recipe's drum slots — one per paddle ("the C1 can have two pre-loaded
+    /// drum patterns"). Rich starts them manually from the paddle in performance.
+    @Published private(set) var drumItems: [C1Pattern] = []
+
+    /// The paddle whose melodic pattern the drums are being matched against:
+    /// the current pick's paddle (a drum never becomes the pick), else Front.
+    private var drumContextPaddle: String {
+        if let c = candidate, c.instrument != "Drums" { return c.paddle }
+        return "Front"
+    }
+
+    func startDrumSampling(paddle: String? = nil) {
+        let paddleCtx = paddle ?? drumContextPaddle
+        let pool = PatternLibrary.all
+            .filter { $0.instrument == "Drums" && $0.paddle == paddleCtx }
+            .sorted { $0.program < $1.program }
+        guard !pool.isEmpty else {
+            statusLine = "No drum grooves on the \(paddleCtx) paddle."
+            return
+        }
+        // Drums own the Next/Add vocabulary while active; the melodic Possible
+        // List survives — this only leaves sweep/review mode.
+        sampleMode = .off
+        drumPaddle = paddleCtx
+        drumPool = pool
+        drumIndex = 0
+        drumSampling = true
+        auditionDrum(pool[0])
+        AppModel.shared.addLog("Voice: sampling drums on \(paddleCtx), \(pool.count) grooves")
+    }
+
+    private func auditionDrum(_ p: C1Pattern) {
+        // Auto-start as he cycles; the universal rule answers with the song
+        // tempo, so the drum plays at the pattern's tempo by construction.
+        firePattern(p)
+        if !BLEManager.shared.isConnected {
+            statusLine = "⚠️ C1 not connected — tap Scan, then keep going."
+        }
+        haptic()
+    }
+
+    func drumNext() {
+        guard drumSampling, !drumPool.isEmpty else { return }
+        if drumIndex >= drumPool.count - 1 {
+            statusLine = "That was the last drum groove — say Back to re-hear, or End."
+            return
+        }
+        drumIndex += 1
+        auditionDrum(drumPool[drumIndex])
+    }
+
+    func drumBack() {
+        guard drumSampling, drumIndex > 0 else { return }
+        drumIndex -= 1
+        auditionDrum(drumPool[drumIndex])
+    }
+
+    /// The drum pane's own Add-to-song: writes the context paddle's drum slot
+    /// (one per paddle; adding again replaces it).
+    func addDrumToSong() {
+        guard drumSampling, !drumPool.isEmpty else { return }
+        let d = drumPool[drumIndex]
+        if let idx = drumItems.firstIndex(where: { $0.paddle == d.paddle }) {
+            drumItems[idx] = d
+        } else {
+            drumItems.append(d)
+        }
+        statusLine = "\(d.name) drums set on the \(d.paddle) paddle. Say Next to keep listening, or End."
+        AppModel.shared.addLog("Voice: drum \(d.name) (\(d.midiLabel)) on \(d.paddle)")
+        haptic()
+    }
+
+    func endDrumSampling() {
+        guard drumSampling else { return }
+        drumSampling = false
+        statusLine = drumItems.isEmpty
+            ? "Drum sampling ended — no drums in the recipe."
+            : "Drum sampling ended — \(drumItems.map { "\($0.paddle): \($0.name)" }.joined(separator: ", "))."
+    }
+
     // MARK: - Favorites
 
     /// Star/unstar a pattern. Starring locks the CURRENT tempo into the favorite,
@@ -822,13 +947,13 @@ final class VoiceCommandManager: ObservableObject {
     }
 
     func savePreset(named name: String) {
-        guard !items.isEmpty || keyProgram != nil || tempoBPM != nil || drumVol != nil || bassVol != nil else {
+        guard !items.isEmpty || !drumItems.isEmpty || keyProgram != nil || tempoBPM != nil || drumVol != nil || bassVol != nil else {
             statusLine = "Nothing to save yet — add a pattern or key first."
             return
         }
         let preset = SongPreset(
             name: name,
-            patterns: items.map { PatternRef(from: $0) },
+            patterns: (items + drumItems).map { PatternRef(from: $0) },
             keyProgram: keyProgram,
             keyLabel: keyLabel,
             tempoBPM: tempoBPM,
@@ -844,7 +969,9 @@ final class VoiceCommandManager: ObservableObject {
     /// Loads a preset into the editor WITHOUT sending anything to the C1,
     /// so it can be modified and re-saved (same name keeps the same trigger number).
     func loadForEditing(_ preset: SongPreset) {
-        items = preset.patterns.map { $0.toPattern() }
+        let all = preset.patterns.map { $0.toPattern() }
+        items = all.filter { $0.instrument != "Drums" }
+        drumItems = all.filter { $0.instrument == "Drums" }
         keyProgram = preset.keyProgram
         keyLabel = preset.keyLabel
         tempoBPM = preset.tempoBPM
@@ -855,7 +982,9 @@ final class VoiceCommandManager: ObservableObject {
     }
 
     func applyPreset(_ preset: SongPreset) {
-        items = preset.patterns.map { $0.toPattern() }
+        let all = preset.patterns.map { $0.toPattern() }
+        items = all.filter { $0.instrument != "Drums" }
+        drumItems = all.filter { $0.instrument == "Drums" }
         keyProgram = preset.keyProgram
         keyLabel = preset.keyLabel
         tempoBPM = preset.tempoBPM
