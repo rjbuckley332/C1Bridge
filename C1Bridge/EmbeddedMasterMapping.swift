@@ -2,7 +2,7 @@ import Foundation
 
 enum EmbeddedMasterMapping {
     static let csv: String = #"""
-instrument,paddle,pattern,liberlive_name,payload_hex,Midi Channel,Midi Program
+instrument,paddle,pattern,liberlive_name,payload_hex,Midi Channel,Midi Program,suggested_tempo
 Guitar,Front,1,Single Strum,eb444c5f5a5a5a5b5a5a,1,1
 Guitar,Front,2,Basic Picking 1,eb444c5f5a5a5a585a5a,1,2
 Guitar,Front,3,Basic Picking 2,eb444c5f5a5a5a595a5a,1,3
@@ -18,32 +18,32 @@ Guitar,Front,12,Trouble,eb444c5f5a5a5b5d5a5a,1,12
 Guitar,Front,13,Honey,eb444c5f5a5a5b525a5a,1,13
 Guitar,Front,14,Obsessed,eb444c5f5a5a5b535a5a,1,14
 Guitar,Front,15,Lapse,eb444c5f5a5a5b515a5a,1,15
-Guitar,Front,16,Family,eb444c5f5a5a5b575a5a,1,16
-Guitar,Front,17,Kid,eb444c5f5a5a5b545a5a,1,17
+Guitar,Front,16,Family,eb444c5f5a5a5b575a5a,1,16,150
+Guitar,Front,17,Kid,eb444c5f5a5a5b545a5a,1,17,120
 Guitar,Front,18,Waltz,eb444c5f5a5a5b4e5a5a,1,18
-Guitar,Front,19,Mortal,eb444c5f5a5a5b4c5a5a,1,19
-Guitar,Front,20,Dairy,eb444c5f5a5a5b4d5a5a,1,20
-Guitar,Front,21,Skyline,eb444c5f5a5a585b5a5a,1,21
-Guitar,Front,22,Freedom,eb444c5f5a5a58585a5a,1,22
+Guitar,Front,19,Mortal,eb444c5f5a5a5b4c5a5a,1,19,130
+Guitar,Front,20,Dairy,eb444c5f5a5a5b4d5a5a,1,20,130
+Guitar,Front,21,Skyline,eb444c5f5a5a585b5a5a,1,21,120
+Guitar,Front,22,Freedom,eb444c5f5a5a58585a5a,1,22,120
 Guitar,Front,23,Verse,eb444c5f5a5a58595a5a,1,23
 Guitar,Front,24,Away,eb444c5f5a5a585e5a5a,1,24
-Guitar,Front,25,Strange,eb444c5f5a5a585c5a5a,1,25
+Guitar,Front,25,Strange,eb444c5f5a5a585c5a5a,1,25,150
 Guitar,Front,26,Wind,eb444c5f5a5a585d5a5a,1,26
-Guitar,Front,27,Apart,eb444c5f5a5a58525a5a,1,27
-Guitar,Front,28,Luggage,eb444c5f5a5a58535a5a,1,28
-Guitar,Front,29,Train,eb444c5f5a5a587a5a5a,1,29
-Guitar,Front,30,After School,eb444c5f5a5a587b5a5a,1,30
-Guitar,Front,31,Rock,eb444c5f5a5a587e5a5a,1,31
-Guitar,Front,32,Old Town,eb444c5f5a5a587c5a5a,1,32
+Guitar,Front,27,Apart,eb444c5f5a5a58525a5a,1,27,140
+Guitar,Front,28,Luggage,eb444c5f5a5a58535a5a,1,28,120
+Guitar,Front,29,Train,eb444c5f5a5a587a5a5a,1,29,130
+Guitar,Front,30,After School,eb444c5f5a5a587b5a5a,1,30,120
+Guitar,Front,31,Rock,eb444c5f5a5a587e5a5a,1,31,130
+Guitar,Front,32,Old Town,eb444c5f5a5a587c5a5a,1,32,150
 Guitar,Front,33,Nibble,eb444c5f5a5a595b5a5a,1,33
-Guitar,Front,34,Heels,eb444c5f5a5a59585a5a,1,34
-Guitar,Front,35,Juliet,eb444c5f5a5a59595a5a,1,35
-Guitar,Front,36,Garden,eb444c5f5a5a595e5a5a,1,36
+Guitar,Front,34,Heels,eb444c5f5a5a59585a5a,1,34,130
+Guitar,Front,35,Juliet,eb444c5f5a5a59595a5a,1,35,120
+Guitar,Front,36,Garden,eb444c5f5a5a595e5a5a,1,36,130
 Guitar,Front,37,Battle,eb444c5f5a5a595f5a5a,1,37
-Guitar,Front,38,Lemon,eb444c5f5a5a595c5a5a,1,38
-Guitar,Front,39,Encounter,eb444c5f5a5a595d5a5a,1,39
-Guitar,Front,40,Heartbeat,eb444c5f5a5a59525a5a,1,40
-Guitar,Front,41,Journey,eb444c5f5a5a59535a5a,1,41
+Guitar,Front,38,Lemon,eb444c5f5a5a595c5a5a,1,38,140
+Guitar,Front,39,Encounter,eb444c5f5a5a595d5a5a,1,39,130
+Guitar,Front,40,Heartbeat,eb444c5f5a5a59525a5a,1,40,130
+Guitar,Front,41,Journey,eb444c5f5a5a59535a5a,1,41,130
 Guitar,Front,42,Waiting,eb444c5f5a5a59505a5a,1,42
 Guitar,Front,43,Seasoned,eb444c5f5a5a59515a5a,1,43
 Guitar,Front,44,Tide,eb444c5f5a5a59575a5a,1,44
