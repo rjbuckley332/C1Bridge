@@ -14,6 +14,13 @@ import UIKit
 ///   "drums 60 percent" / "bass 40 percent"    -> set volumes (Ch 8/9)
 ///   "save as Country Roads"                   -> store the whole setup as a named preset
 ///   "load Country Roads" / "country roads"    -> apply a saved preset
+///   "sample guitar (starting at 12)"          -> audition-sweep an instrument's Front patterns;
+///                                                "add" shortlists to the Possible List, "next" advances
+///                                                (pool end auto-enters review), "end" stops
+///   "review"                                  -> loop the Possible List: "next"/"back", "remove" culls
+///   "use front" / "use rear"                  -> put the reviewed pattern on that paddle slot
+///                                                (one pattern per paddle; replacing asks "are you sure?")
+///   "end"                                     -> leave review mode
 ///   "stop listening"                          -> mic off
 @MainActor
 final class VoiceCommandManager: ObservableObject {
@@ -31,6 +38,17 @@ final class VoiceCommandManager: ObservableObject {
     @Published private(set) var tempoBPM: Int?
     @Published private(set) var drumVol: Int?
     @Published private(set) var bassVol: Int?
+
+    // MARK: - Sampling / Possible List state
+
+    enum SampleMode: String { case off, sampling, reviewing }
+    @Published private(set) var sampleMode: SampleMode = .off
+    @Published private(set) var samplePool: [C1Pattern] = []   // patterns being swept (sampling) — or the possibles (reviewing)
+    @Published private(set) var sampleIndex = 0
+    @Published private(set) var possibles: [C1Pattern] = []    // the Possible List (shortlist)
+    @Published private(set) var sampleInstrument: String?
+    /// A pattern awaiting "are you sure?" confirmation before replacing the paddle's current choice.
+    private var pendingReplace: C1Pattern?
 
     // MARK: - Speech internals
 
@@ -206,6 +224,68 @@ final class VoiceCommandManager: ObservableObject {
         var norm = Self.normalize(raw)
         norm = Self.stripFillers(norm)
 
+        // A pending "replace the paddle's pattern? are you sure?" trumps everything.
+        if let pending = pendingReplace {
+            pendingReplace = nil
+            if ["yes", "yeah", "yep", "sure", "confirm", "do it", "replace", "replace it"].contains(norm) {
+                placeInRecipe(pending, confirmedReplace: true)
+            } else {
+                statusLine = "Cancelled — the recipe is unchanged."
+            }
+            return
+        }
+
+        // Enter sampling: "sample guitar", "sample piano starting at 5", ...
+        if let rest = Self.extractAfter(norm, prefixes: ["sample", "start sampling", "sampling"]),
+           !rest.isEmpty {
+            startSampling(command: rest)
+            return
+        }
+        // Enter review of the Possible List.
+        if ["review", "review list", "review possibles", "review the list", "start review",
+            "review shortlist", "shortlist", "possible list", "possibles"].contains(norm) {
+            startReview()
+            return
+        }
+        if ["clear possibles", "clear possible list", "clear shortlist", "empty possibles"].contains(norm) {
+            possibles.removeAll()
+            if sampleMode != .off { sampleMode = .off }
+            statusLine = "Possible List cleared."
+            return
+        }
+
+        // Mode-scoped commands win over the general grammar.
+        switch sampleMode {
+        case .sampling:
+            if ["add", "add it", "add to list", "add to possibles", "possible", "keep", "keep it", "shortlist it"].contains(norm) {
+                addPossible(); return
+            }
+            if ["next", "next one", "skip", "move on", "keep going"].contains(norm) { sampleNext(); return }
+            if ["back", "previous", "go back", "last one", "one back"].contains(norm) { sampleBack(); return }
+            if ["end", "end sampling", "stop sampling", "done sampling", "finish sampling", "thats all"].contains(norm) {
+                endSampling(); return
+            }
+        case .reviewing:
+            if ["next", "next one"].contains(norm) { reviewNext(); return }
+            if ["back", "previous", "go back"].contains(norm) { reviewBack(); return }
+            if ["remove", "remove this", "drop", "drop it", "cull", "take it out", "not this one"].contains(norm) {
+                removePossible(); return
+            }
+            if ["use front", "front", "use this front", "keep front", "on front", "use it front",
+                "add front", "front paddle", "on the front"].contains(norm) { useOnPaddle("Front"); return }
+            if ["use rear", "rear", "use back", "use this back", "keep rear", "on rear", "use it rear",
+                "add rear", "rear paddle", "on the rear", "on the back"].contains(norm) { useOnPaddle("Rear"); return }
+            if ["use this", "use it", "keep", "keep it", "that's the one", "that one"].contains(norm) {
+                statusLine = "Which paddle? Say \"use front\" or \"use rear\"."
+                return
+            }
+            if ["end", "end review", "done", "finish", "exit review", "stop review"].contains(norm) {
+                endReview(); return
+            }
+        case .off:
+            break
+        }
+
         if let name = Self.extractAfter(norm, prefixes: ["save as", "save this as", "save song as", "save this song as", "call this", "name this"]),
            !name.isEmpty {
             savePreset(named: Self.titleCase(name))
@@ -340,6 +420,198 @@ final class VoiceCommandManager: ObservableObject {
         items.removeAll()
         candidate = nil
         statusLine = "Cleared — fresh song."
+    }
+
+    // MARK: - Sampling & Possible List
+
+    /// "sample guitar starting at 12" — builds the pool (one instrument, one paddle,
+    /// sorted by program), clears any stale Possible List, and auditions the first pattern.
+    private func startSampling(command: String) {
+        var instrument: String?
+        var paddle = "Front" // sampling is done on the Front paddle; rear is chosen at recipe time
+        var text = command
+        for (word, value) in [("guitar", "Guitar"), ("piano", "Piano"), ("bass", "Bass"), ("drums", "Drums"), ("drum", "Drums")] where text.contains(word) {
+            instrument = value
+            text = text.replacingOccurrences(of: word, with: " ")
+            break
+        }
+        for (word, value) in [("rear", "Rear"), ("back", "Rear"), ("front", "Front")] where text.contains(word) {
+            paddle = value
+            text = text.replacingOccurrences(of: word, with: " ")
+            break
+        }
+        let startAt = Self.firstInt(in: text) ?? 1
+        guard let inst = instrument else {
+            statusLine = "Sample which instrument? Say \"sample guitar\", \"sample piano\", \"sample bass\", or \"sample drums\"."
+            return
+        }
+        let pool = PatternLibrary.all
+            .filter { $0.instrument == inst && $0.paddle == paddle }
+            .sorted { $0.program < $1.program }
+        guard !pool.isEmpty else {
+            statusLine = "No \(inst) \(paddle) patterns in the library."
+            return
+        }
+        if !possibles.isEmpty {
+            AppModel.shared.addLog("Voice: new sample session cleared \(possibles.count) possibles")
+        }
+        possibles = []
+        samplePool = pool
+        sampleInstrument = inst
+        sampleIndex = min(max(startAt, 1), pool.count) - 1
+        sampleMode = .sampling
+        auditionSampled(pool[sampleIndex])
+        AppModel.shared.addLog("Voice: sampling \(inst) \(paddle), \(pool.count) patterns, starting at \(sampleIndex + 1)")
+    }
+
+    private func auditionSampled(_ p: C1Pattern) {
+        candidate = p
+        MIDIHandler.trigger(channel: p.channel, program: p.program)
+        haptic()
+    }
+
+    private var samplingStatus: String {
+        let total = sampleMode == .sampling ? samplePool.count : possibles.count
+        let what = sampleMode == .sampling ? "Sampling \(sampleInstrument ?? "")" : "Reviewing"
+        return "\(what) \(sampleIndex + 1) of \(total)"
+    }
+
+    func sampleNext() {
+        guard sampleMode == .sampling, !samplePool.isEmpty else { return }
+        if sampleIndex >= samplePool.count - 1 {
+            // Rich's rule: stop at the end and begin sampling the short list.
+            statusLine = "That was the last \(sampleInstrument ?? "") pattern."
+            endSampling()
+            return
+        }
+        sampleIndex += 1
+        let p = samplePool[sampleIndex]
+        auditionSampled(p)
+        statusLine = "\(samplingStatus): \(p.name). Say Add, Next, or End."
+    }
+
+    func sampleBack() {
+        guard sampleMode == .sampling, sampleIndex > 0 else { return }
+        sampleIndex -= 1
+        let p = samplePool[sampleIndex]
+        auditionSampled(p)
+        statusLine = "\(samplingStatus): \(p.name). Say Add, Next, or End."
+    }
+
+    func addPossible() {
+        guard sampleMode == .sampling, !samplePool.isEmpty else {
+            statusLine = "Not sampling right now — say \"sample guitar\" first."
+            return
+        }
+        let p = samplePool[sampleIndex]
+        guard !possibles.contains(p) else {
+            statusLine = "\(p.name) is already in the Possible List (\(possibles.count)). Say Next."
+            return
+        }
+        possibles.append(p)
+        statusLine = "Added \(p.name) to the Possible List (\(possibles.count)). Say Next to keep sampling."
+        haptic()
+    }
+
+    /// "End" during sampling: go straight into reviewing the shortlist (if any).
+    func endSampling() {
+        guard sampleMode == .sampling else { return }
+        if possibles.isEmpty {
+            sampleMode = .off
+            statusLine += " Possible List is empty — say \"sample \(sampleInstrument?.lowercased() ?? "guitar")\" to start again."
+        } else {
+            startReview()
+        }
+    }
+
+    func startReview() {
+        guard !possibles.isEmpty else {
+            statusLine = "Possible List is empty — sample some patterns first (\"sample guitar\")."
+            return
+        }
+        sampleMode = .reviewing
+        sampleIndex = 0
+        let p = possibles[0]
+        auditionSampled(p)
+        statusLine = "\(samplingStatus): \(p.name). Next / Remove / Use front / Use rear / End."
+    }
+
+    func reviewNext() {
+        guard sampleMode == .reviewing, !possibles.isEmpty else { return }
+        sampleIndex = (sampleIndex + 1) % possibles.count // review loops
+        let p = possibles[sampleIndex]
+        auditionSampled(p)
+        statusLine = "\(samplingStatus): \(p.name). Next / Remove / Use front / Use rear / End."
+    }
+
+    func reviewBack() {
+        guard sampleMode == .reviewing, !possibles.isEmpty else { return }
+        sampleIndex = (sampleIndex - 1 + possibles.count) % possibles.count
+        let p = possibles[sampleIndex]
+        auditionSampled(p)
+        statusLine = "\(samplingStatus): \(p.name). Next / Remove / Use front / Use rear / End."
+    }
+
+    func removePossible() {
+        guard sampleMode == .reviewing, !possibles.isEmpty else { return }
+        let gone = possibles.remove(at: sampleIndex)
+        if possibles.isEmpty {
+            sampleMode = .off
+            statusLine = "Removed \(gone.name) — Possible List is empty now. Say \"sample \(sampleInstrument?.lowercased() ?? "guitar")\" to start over."
+            return
+        }
+        sampleIndex = min(sampleIndex, possibles.count - 1)
+        let p = possibles[sampleIndex]
+        auditionSampled(p)
+        statusLine = "Removed \(gone.name). \(samplingStatus): \(p.name)."
+    }
+
+    /// Puts the currently reviewed pattern onto a paddle slot. Each paddle holds ONE
+    /// pattern — if that slot is taken, ask "are you sure?" before replacing.
+    func useOnPaddle(_ paddle: String) {
+        guard sampleMode == .reviewing, !possibles.isEmpty else { return }
+        let base = possibles[sampleIndex]
+        let variant: C1Pattern
+        if paddle == base.paddle {
+            variant = base
+        } else if let match = PatternLibrary.all.first(where: {
+            $0.instrument == base.instrument && $0.paddle == paddle && $0.name == base.name
+        }) {
+            variant = match
+        } else {
+            statusLine = "There's no \(paddle) version of \(base.name)."
+            return
+        }
+        if let existing = items.first(where: { $0.paddle == paddle }) {
+            pendingReplace = variant
+            statusLine = "\(existing.name) is already on the \(paddle) paddle. Replace it with \(variant.name)? Say yes or no."
+            return
+        }
+        placeInRecipe(variant, confirmedReplace: false)
+    }
+
+    private func placeInRecipe(_ p: C1Pattern, confirmedReplace: Bool) {
+        var replaced = false
+        if let idx = items.firstIndex(where: { $0.paddle == p.paddle }) {
+            items[idx] = p
+            replaced = true
+        } else {
+            items.append(p)
+        }
+        candidate = p
+        MIDIHandler.trigger(channel: p.channel, program: p.program)
+        let verb = replaced ? "Replaced —" : "Added"
+        statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)). Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End."
+        AppModel.shared.addLog("Voice: \(replaced ? "replaced" : "added") \(p.name) on \(p.paddle) paddle")
+        haptic()
+    }
+
+    func endReview() {
+        guard sampleMode == .reviewing else { return }
+        sampleMode = .off
+        statusLine = possibles.isEmpty
+            ? "Review ended."
+            : "Review ended — Possible List kept (\(possibles.count)). Say \"review\" to jump back in, or \"clear possibles\"."
     }
 
     func setKey(label: String, program: Int) {

@@ -16,6 +16,7 @@ struct SongSetupView: View {
     var body: some View {
         List {
             voiceSection
+            samplingSection
             if !searchText.isEmpty { searchSection }
             if voice.candidate != nil { candidateSection }
             songSection
@@ -268,6 +269,86 @@ struct SongSetupView: View {
             lines.append("Bass \(b)% — Ch 9 · PC \(b + 1)")
         }
         return lines.isEmpty ? "Nothing yet." : lines.joined(separator: "\n")
+    }
+
+    // MARK: - Sampling & Possible List
+
+    private var samplingSection: some View {
+        Section {
+            switch voice.sampleMode {
+            case .off:
+                if voice.possibles.isEmpty {
+                    Text("Say \"sample guitar\" to sweep patterns hands-free: Add shortlists, Next moves on, End reviews.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    possibleListRows(highlight: nil)
+                    Button("Review Possible List") { voice.startReview() }
+                }
+            case .sampling:
+                if !voice.samplePool.isEmpty {
+                    let p = voice.samplePool[min(voice.sampleIndex, voice.samplePool.count - 1)]
+                    samplingHeader(p, title: "Sampling \(voice.sampleInstrument ?? "") \(voice.sampleIndex + 1) of \(voice.samplePool.count)")
+                    HStack(spacing: 10) {
+                        Button("Back") { voice.sampleBack() }
+                        Button("Next") { voice.sampleNext() }
+                        Button("Add") { voice.addPossible() }
+                            .buttonStyle(.borderedProminent)
+                        Button("End") { voice.endSampling() }
+                            .tint(.red)
+                    }
+                    .buttonStyle(.bordered)
+                    if !voice.possibles.isEmpty {
+                        possibleListRows(highlight: nil)
+                    }
+                }
+            case .reviewing:
+                if !voice.possibles.isEmpty {
+                    let p = voice.possibles[min(voice.sampleIndex, voice.possibles.count - 1)]
+                    samplingHeader(p, title: "Reviewing \(voice.sampleIndex + 1) of \(voice.possibles.count)")
+                    HStack(spacing: 10) {
+                        Button("Back") { voice.reviewBack() }
+                        Button("Next") { voice.reviewNext() }
+                        Button("Remove") { voice.removePossible() }
+                            .tint(.red)
+                    }
+                    .buttonStyle(.bordered)
+                    HStack(spacing: 10) {
+                        Button("Use Front") { voice.useOnPaddle("Front") }
+                            .buttonStyle(.borderedProminent)
+                        Button("Use Rear") { voice.useOnPaddle("Rear") }
+                            .buttonStyle(.borderedProminent)
+                        Button("End") { voice.endReview() }
+                    }
+                    .buttonStyle(.bordered)
+                    possibleListRows(highlight: voice.sampleIndex)
+                }
+            }
+        } header: {
+            Text(voice.sampleMode == .reviewing ? "Possible List — Review" : "Pattern Sampling")
+        }
+    }
+
+    private func samplingHeader(_ p: C1Pattern, title: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(p.name).font(.title3).bold()
+            Text("\(p.subtitle) · \(p.midiLabel)").font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private func possibleListRows(highlight: Int?) -> some View {
+        ForEach(Array(voice.possibles.enumerated()), id: \.element) { idx, p in
+            HStack {
+                Text("\(idx + 1).").font(.caption).foregroundStyle(.secondary)
+                Text(p.name)
+                    .font(.caption)
+                    .bold(idx == highlight)
+                Spacer()
+                Text(p.midiLabel).font(.caption2).foregroundStyle(.secondary)
+            }
+            .listRowBackground(idx == highlight ? Color.purple.opacity(0.15) : Color.clear)
+        }
     }
 
     // MARK: - Saved songs
