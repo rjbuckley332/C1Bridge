@@ -374,6 +374,17 @@ struct SongSetupView: View {
                         .tint(.red)
                 }
                 .buttonStyle(.bordered)
+                // Live slot confirmation — the Add's effect is visible right here
+                // in the panel, not just up in the status line.
+                if let set = voice.drumItems.first(where: { $0.paddle == voice.drumPaddle }) {
+                    Label("\(voice.drumPaddle) drum slot: \(set.name)", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else {
+                    Text("Add writes this groove to the \(voice.drumPaddle) drum slot.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Button("Sample Drums") { voice.startDrumSampling() }
                 if !voice.drumItems.isEmpty {
