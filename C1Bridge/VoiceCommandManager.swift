@@ -391,10 +391,16 @@ final class VoiceCommandManager: ObservableObject {
 
     // MARK: - Actions (shared by voice and UI)
 
+    /// Appended to status lines whenever the C1 link is down, so silent
+    /// BLE failures can't masquerade as successful sends.
+    private var connWarning: String {
+        BLEManager.shared.isConnected ? "" : "  ⚠️ C1 not connected — tap Scan."
+    }
+
     func audition(_ p: C1Pattern) {
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
-        statusLine = "🎸 \(p.name) — \(p.subtitle) · \(p.midiLabel)."
+        statusLine = "🎸 \(p.name) — \(p.subtitle) · \(p.midiLabel)." + connWarning
         haptic()
     }
 
@@ -471,6 +477,9 @@ final class VoiceCommandManager: ObservableObject {
     private func auditionSampled(_ p: C1Pattern) {
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
+        if !BLEManager.shared.isConnected {
+            statusLine = "⚠️ C1 not connected — tap Scan, then keep going."
+        }
         haptic()
     }
 
@@ -605,7 +614,7 @@ final class VoiceCommandManager: ObservableObject {
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
         let verb = replaced ? "Replaced —" : "Added"
-        statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)). Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End."
+        statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)). Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End." + connWarning
         AppModel.shared.addLog("Voice: \(replaced ? "replaced" : "added") \(p.name) on \(p.paddle) paddle")
         haptic()
     }
