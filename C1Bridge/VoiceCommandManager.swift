@@ -261,7 +261,8 @@ final class VoiceCommandManager: ObservableObject {
         }
 
         // Enter sampling: "sample guitar", "sample piano starting at 5", ...
-        if let rest = Self.extractAfter(norm, prefixes: ["sample", "start sampling", "sampling"]),
+        // "simple" is a common speech-to-text mishearing of "sample" — treat them alike.
+        if let rest = Self.extractAfter(norm, prefixes: ["sample", "simple", "start sampling", "sampling"]),
            !rest.isEmpty {
             startSampling(command: rest)
             return
