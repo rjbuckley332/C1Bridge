@@ -3,6 +3,14 @@ import Speech
 import AVFoundation
 import UIKit
 
+/// A shortlisted pattern with the tempo that was set the moment it was Added —
+/// pattern and tempo stay locked together through review and into the recipe.
+struct PatternPick: Identifiable, Hashable {
+    let id = UUID()
+    var pattern: C1Pattern
+    var tempoBPM: Int? // nil = no tempo was set at Add time; recipe tempo untouched
+}
+
 /// On-device voice control for building song setups hands-free.
 ///
 /// Grammar (all matched loosely after speech recognition):
@@ -21,8 +29,12 @@ import UIKit
 ///   "use front" / "use rear"                  -> put the reviewed pattern on that paddle slot
 ///                                                (one pattern per paddle; replacing asks "are you sure?")
 ///   "end"                                     -> leave review mode
-///   "favorite" / "unfavorite"                 -> star/unstar the current pattern (persists)
+///   "favorite" / "unfavorite"                 -> star/unstar the current pattern; starring locks
+///                                                the current tempo INTO the favorite, and choosing
+///                                                a favorite later updates the tempo field to match
 ///   "sample guitar favorites"                 -> sweep only your starred patterns for that instrument
+///   "suggested tempo 92"                      -> bank the current pattern's ideal tempo (applies
+///                                                whenever the pattern is chosen)
 ///   "stop listening"                          -> mic off
 @MainActor
 final class VoiceCommandManager: ObservableObject {
@@ -47,10 +59,10 @@ final class VoiceCommandManager: ObservableObject {
     @Published private(set) var sampleMode: SampleMode = .off
     @Published private(set) var samplePool: [C1Pattern] = []   // patterns being swept (sampling) — or the possibles (reviewing)
     @Published private(set) var sampleIndex = 0
-    @Published private(set) var possibles: [C1Pattern] = []    // the Possible List (shortlist)
+    @Published private(set) var possibles: [PatternPick] = []  // the Possible List (shortlist; tempo-locked)
     @Published private(set) var sampleInstrument: String?
     /// A pattern awaiting "are you sure?" confirmation before replacing the paddle's current choice.
-    private var pendingReplace: C1Pattern?
+    private var pendingReplace: PatternPick?
     /// True while sweeping a favorites-only pool (shows in status text).
     private var samplingFavorites = false
 
@@ -232,7 +244,7 @@ final class VoiceCommandManager: ObservableObject {
         if let pending = pendingReplace {
             pendingReplace = nil
             if ["yes", "yeah", "yep", "sure", "confirm", "do it", "replace", "replace it"].contains(norm) {
-                placeInRecipe(pending, confirmedReplace: true)
+                placeInRecipe(pending.pattern, lockedTempo: pending.tempoBPM, confirmedReplace: true)
             } else {
                 statusLine = "Cancelled — the recipe is unchanged."
             }
@@ -255,6 +267,19 @@ final class VoiceCommandManager: ObservableObject {
             possibles.removeAll()
             if sampleMode != .off { sampleMode = .off }
             statusLine = "Possible List cleared."
+            return
+        }
+
+        // Suggested tempo banking: "suggested tempo 92" while a pattern plays.
+        if norm.contains("suggest") {
+            if let n = Self.firstInt(in: norm), (40...294).contains(n), let c = candidate {
+                SuggestedTempoStore.shared.set(n, for: c)
+                statusLine = "Suggested tempo for \(c.name): \(n) BPM — Add will update the tempo field to \(n) and lock the pair."
+                AppModel.shared.addLog("Voice: suggested tempo \(n) for \(c.name) (\(c.midiLabel))")
+                haptic()
+            } else {
+                statusLine = "Say \"suggested tempo 92\" while a pattern is playing."
+            }
             return
         }
 
@@ -512,11 +537,27 @@ final class VoiceCommandManager: ObservableObject {
     private func auditionSampled(_ p: C1Pattern) {
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
-        reapplyTempoIfSet()
+        if let t = carriedTempo(for: p) {
+            // Choosing a favorite (or any pattern with a banked tempo) updates
+            // the tempo field — the pattern and its tempo arrive together.
+            tempoBPM = t
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                MIDIHandler.triggerTempo(bpm: t)
+            }
+        } else {
+            reapplyTempoIfSet()
+        }
         if !BLEManager.shared.isConnected {
             statusLine = "⚠️ C1 not connected — tap Scan, then keep going."
         }
         haptic()
+    }
+
+    /// The tempo a pattern carries with it: its favorite-locked tempo first,
+    /// then any banked suggested tempo. nil = the pattern has no tempo of its own.
+    private func carriedTempo(for p: C1Pattern) -> Int? {
+        FavoritesStore.shared.tempo(for: p) ?? SuggestedTempoStore.shared.tempo(for: p)
     }
 
     private var samplingStatus: String {
@@ -555,12 +596,15 @@ final class VoiceCommandManager: ObservableObject {
             return
         }
         let p = samplePool[sampleIndex]
-        guard !possibles.contains(p) else {
+        guard !possibles.contains(where: { $0.pattern == p }) else {
             statusLine = "\(p.name) is already in the Possible List (\(possibles.count)). Say Next."
             return
         }
-        possibles.append(p)
-        statusLine = "Added \(p.name) to the Possible List (\(possibles.count)). Say Next to keep sampling."
+        // Lock at Add time: whatever the tempo field shows right now. (The field
+        // already follows a chosen pattern's carried tempo, set at audition time.)
+        possibles.append(PatternPick(pattern: p, tempoBPM: tempoBPM))
+        let tempoNote = tempoBPM.map { " (locked at \($0) BPM)" } ?? ""
+        statusLine = "Added \(p.name) to the Possible List (\(possibles.count))\(tempoNote). Say Next to keep sampling."
         haptic()
     }
 
@@ -575,6 +619,31 @@ final class VoiceCommandManager: ObservableObject {
         }
     }
 
+    /// Auditions a shortlist pick at ITS locked tempo (falling back to the
+    /// currently-held tempo when the pick has none).
+    private func auditionPick(_ pick: PatternPick) {
+        candidate = pick.pattern
+        MIDIHandler.trigger(channel: pick.pattern.channel, program: pick.pattern.program)
+        if let bpm = pick.tempoBPM {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                MIDIHandler.triggerTempo(bpm: bpm)
+            }
+        } else {
+            reapplyTempoIfSet()
+        }
+        if !BLEManager.shared.isConnected {
+            statusLine = "⚠️ C1 not connected — tap Scan, then keep going."
+        }
+        haptic()
+    }
+
+    private var reviewTempoNote: String {
+        guard sampleMode == .reviewing, !possibles.isEmpty,
+              let t = possibles[min(sampleIndex, possibles.count - 1)].tempoBPM else { return "" }
+        return " (locked \(t) BPM)"
+    }
+
     func startReview() {
         guard !possibles.isEmpty else {
             statusLine = "Possible List is empty — sample some patterns first (\"sample guitar\")."
@@ -582,25 +651,24 @@ final class VoiceCommandManager: ObservableObject {
         }
         sampleMode = .reviewing
         sampleIndex = 0
-        let p = possibles[0]
-        auditionSampled(p)
-        statusLine = "\(samplingStatus): \(p.name). Next / Remove / Use front / Use rear / End."
+        auditionPick(possibles[0])
+        statusLine = "\(samplingStatus): \(possibles[0].pattern.name)\(reviewTempoNote). Next / Remove / Use front / Use rear / End."
     }
 
     func reviewNext() {
         guard sampleMode == .reviewing, !possibles.isEmpty else { return }
         sampleIndex = (sampleIndex + 1) % possibles.count // review loops
-        let p = possibles[sampleIndex]
-        auditionSampled(p)
-        statusLine = "\(samplingStatus): \(p.name). Next / Remove / Use front / Use rear / End."
+        let pick = possibles[sampleIndex]
+        auditionPick(pick)
+        statusLine = "\(samplingStatus): \(pick.pattern.name)\(reviewTempoNote). Next / Remove / Use front / Use rear / End."
     }
 
     func reviewBack() {
         guard sampleMode == .reviewing, !possibles.isEmpty else { return }
         sampleIndex = (sampleIndex - 1 + possibles.count) % possibles.count
-        let p = possibles[sampleIndex]
-        auditionSampled(p)
-        statusLine = "\(samplingStatus): \(p.name). Next / Remove / Use front / Use rear / End."
+        let pick = possibles[sampleIndex]
+        auditionPick(pick)
+        statusLine = "\(samplingStatus): \(pick.pattern.name)\(reviewTempoNote). Next / Remove / Use front / Use rear / End."
     }
 
     func removePossible() {
@@ -608,20 +676,22 @@ final class VoiceCommandManager: ObservableObject {
         let gone = possibles.remove(at: sampleIndex)
         if possibles.isEmpty {
             sampleMode = .off
-            statusLine = "Removed \(gone.name) — Possible List is empty now. Say \"sample \(sampleInstrument?.lowercased() ?? "guitar")\" to start over."
+            statusLine = "Removed \(gone.pattern.name) — Possible List is empty now. Say \"sample \(sampleInstrument?.lowercased() ?? "guitar")\" to start over."
             return
         }
         sampleIndex = min(sampleIndex, possibles.count - 1)
-        let p = possibles[sampleIndex]
-        auditionSampled(p)
-        statusLine = "Removed \(gone.name). \(samplingStatus): \(p.name)."
+        let pick = possibles[sampleIndex]
+        auditionPick(pick)
+        statusLine = "Removed \(gone.pattern.name). \(samplingStatus): \(pick.pattern.name)\(reviewTempoNote)."
     }
 
     /// Puts the currently reviewed pattern onto a paddle slot. Each paddle holds ONE
     /// pattern — if that slot is taken, ask "are you sure?" before replacing.
+    /// The pick's locked tempo goes into the recipe alongside the pattern.
     func useOnPaddle(_ paddle: String) {
         guard sampleMode == .reviewing, !possibles.isEmpty else { return }
-        let base = possibles[sampleIndex]
+        let pick = possibles[sampleIndex]
+        let base = pick.pattern
         let variant: C1Pattern
         if paddle == base.paddle {
             variant = base
@@ -634,14 +704,14 @@ final class VoiceCommandManager: ObservableObject {
             return
         }
         if let existing = items.first(where: { $0.paddle == paddle }) {
-            pendingReplace = variant
+            pendingReplace = PatternPick(pattern: variant, tempoBPM: pick.tempoBPM)
             statusLine = "\(existing.name) is already on the \(paddle) paddle. Replace it with \(variant.name)? Say yes or no."
             return
         }
-        placeInRecipe(variant, confirmedReplace: false)
+        placeInRecipe(variant, lockedTempo: pick.tempoBPM, confirmedReplace: false)
     }
 
-    private func placeInRecipe(_ p: C1Pattern, confirmedReplace: Bool) {
+    private func placeInRecipe(_ p: C1Pattern, lockedTempo: Int?, confirmedReplace: Bool) {
         var replaced = false
         if let idx = items.firstIndex(where: { $0.paddle == p.paddle }) {
             items[idx] = p
@@ -651,10 +721,28 @@ final class VoiceCommandManager: ObservableObject {
         }
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
-        reapplyTempoIfSet()
+        // Tempo and pattern land in the recipe TOGETHER: the pick's locked
+        // tempo becomes the song's tempo (a song has one tempo — last placement
+        // wins, and the status says so when it changes).
+        var tempoNote = ""
+        if let bpm = lockedTempo {
+            let old = tempoBPM
+            tempoBPM = bpm
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                MIDIHandler.triggerTempo(bpm: bpm)
+            }
+            if old == bpm {
+                tempoNote = " Tempo stays \(bpm)."
+            } else {
+                tempoNote = " Tempo \(old.map(String.init) ?? "—") → \(bpm) to match \(p.name)."
+            }
+        } else {
+            reapplyTempoIfSet()
+        }
         let verb = replaced ? "Replaced —" : "Added"
-        statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)). Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End." + connWarning
-        AppModel.shared.addLog("Voice: \(replaced ? "replaced" : "added") \(p.name) on \(p.paddle) paddle")
+        statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)).\(tempoNote) Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End." + connWarning
+        AppModel.shared.addLog("Voice: \(replaced ? "replaced" : "added") \(p.name) on \(p.paddle) paddle\(lockedTempo.map { " (tempo \($0))" } ?? "")")
         haptic()
     }
 
@@ -668,18 +756,30 @@ final class VoiceCommandManager: ObservableObject {
 
     // MARK: - Favorites
 
+    /// Star/unstar a pattern. Starring locks the CURRENT tempo into the favorite,
+    /// so the pair is permanent — choosing the favorite later updates the field.
+    func toggleFavorite(_ p: C1Pattern) {
+        if FavoritesStore.shared.isFavorite(p) {
+            FavoritesStore.shared.remove(p)
+            statusLine = "Removed \(p.name) from favorites."
+        } else {
+            FavoritesStore.shared.add(p, tempo: tempoBPM)
+            statusLine = "⭐ \(p.name) favorited\(tempoBPM.map { " — locked at \($0) BPM" } ?? "")."
+            AppModel.shared.addLog("Voice: favorited \(p.name) at \(tempoBPM.map(String.init) ?? "—") BPM")
+        }
+        haptic()
+    }
+
     func favoriteCurrent() {
         guard let c = candidate else {
             statusLine = "Nothing playing to favorite yet — pick a pattern first."
             return
         }
         guard !FavoritesStore.shared.isFavorite(c) else {
-            statusLine = "\(c.name) is already a favorite."
+            statusLine = "\(c.name) is already a favorite\(FavoritesStore.shared.tempo(for: c).map { " (locked \($0) BPM)" } ?? "")."
             return
         }
-        FavoritesStore.shared.add(c)
-        statusLine = "⭐ \(c.name) added to favorites (\(FavoritesStore.shared.favorites.count) total)."
-        haptic()
+        toggleFavorite(c)
     }
 
     func unfavoriteCurrent() {

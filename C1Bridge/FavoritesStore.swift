@@ -16,14 +16,21 @@ final class FavoritesStore: ObservableObject {
         favorites.contains { $0.channel == p.channel && $0.program == p.program }
     }
 
-    func toggle(_ p: C1Pattern) {
-        isFavorite(p) ? remove(p) : add(p)
+    func toggle(_ p: C1Pattern, tempo: Int? = nil) {
+        isFavorite(p) ? remove(p) : add(p, tempo: tempo)
     }
 
-    func add(_ p: C1Pattern) {
+    func add(_ p: C1Pattern, tempo: Int? = nil) {
         guard !isFavorite(p) else { return }
-        favorites.append(PatternRef(from: p))
+        var ref = PatternRef(from: p)
+        ref.tempoBPM = tempo
+        favorites.append(ref)
         save()
+    }
+
+    /// The tempo locked into this pattern's favorite record, if any.
+    func tempo(for p: C1Pattern) -> Int? {
+        favorites.first { $0.channel == p.channel && $0.program == p.program }?.tempoBPM
     }
 
     func remove(_ p: C1Pattern) {

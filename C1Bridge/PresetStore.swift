@@ -7,6 +7,9 @@ struct PatternRef: Codable, Hashable {
     var name: String
     var channel: Int
     var program: Int
+    /// Tempo locked to this pattern when it was favorited — nil for legacy records.
+    /// Optional, so synthesized Codable decodes pre-tempo JSON cleanly.
+    var tempoBPM: Int? = nil
 
     init(from p: C1Pattern) {
         instrument = p.instrument
@@ -14,6 +17,7 @@ struct PatternRef: Codable, Hashable {
         name = p.name
         channel = p.channel
         program = p.program
+        tempoBPM = nil
     }
 
     func toPattern() -> C1Pattern {

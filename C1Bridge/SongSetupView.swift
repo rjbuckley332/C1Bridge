@@ -8,6 +8,7 @@ struct SongSetupView: View {
     @ObservedObject private var voice = VoiceCommandManager.shared
     @ObservedObject private var presets = PresetStore.shared
     @ObservedObject private var favorites = FavoritesStore.shared
+    @ObservedObject private var suggested = SuggestedTempoStore.shared
     @State private var searchText = ""
     @State private var presetName = ""
     @FocusState private var nameFieldFocused: Bool
@@ -289,7 +290,7 @@ struct SongSetupView: View {
             case .sampling:
                 if !voice.samplePool.isEmpty {
                     let p = voice.samplePool[min(voice.sampleIndex, voice.samplePool.count - 1)]
-                    samplingHeader(p, title: "Sampling \(voice.sampleInstrument ?? "") \(voice.sampleIndex + 1) of \(voice.samplePool.count)")
+                    samplingHeader(p, title: "Sampling \(voice.sampleInstrument ?? "") \(voice.sampleIndex + 1) of \(voice.samplePool.count)", tempo: voice.tempoBPM)
                     HStack(spacing: 10) {
                         Button("Back") { voice.sampleBack() }
                         Button("Next") { voice.sampleNext() }
@@ -305,8 +306,8 @@ struct SongSetupView: View {
                 }
             case .reviewing:
                 if !voice.possibles.isEmpty {
-                    let p = voice.possibles[min(voice.sampleIndex, voice.possibles.count - 1)]
-                    samplingHeader(p, title: "Reviewing \(voice.sampleIndex + 1) of \(voice.possibles.count)")
+                    let pick = voice.possibles[min(voice.sampleIndex, voice.possibles.count - 1)]
+                    samplingHeader(pick.pattern, title: "Reviewing \(voice.sampleIndex + 1) of \(voice.possibles.count)", tempo: pick.tempoBPM ?? voice.tempoBPM)
                     HStack(spacing: 10) {
                         Button("Back") { voice.reviewBack() }
                         Button("Next") { voice.reviewNext() }
@@ -330,12 +331,12 @@ struct SongSetupView: View {
         }
     }
 
-    private func samplingHeader(_ p: C1Pattern, title: String) -> some View {
+    private func samplingHeader(_ p: C1Pattern, title: String, tempo: Int?) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(title).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                if let t = voice.tempoBPM {
+                if let t = tempo {
                     Text("Tempo \(t)")
                         .font(.caption).bold()
                         .foregroundStyle(.blue)
@@ -344,26 +345,40 @@ struct SongSetupView: View {
             HStack {
                 Text(p.name).font(.title3).bold()
                 Spacer()
-                Button { favorites.toggle(p) } label: {
+                Button { voice.toggleFavorite(p) } label: {
                     Image(systemName: favorites.isFavorite(p) ? "star.fill" : "star")
                         .font(.title3)
                         .foregroundStyle(.yellow)
                 }
                 .buttonStyle(.plain)
             }
-            Text("\(p.subtitle) · \(p.midiLabel)").font(.caption2).foregroundStyle(.secondary)
+            Text("\(p.subtitle) · \(p.midiLabel)\(carriedNote(p))").font(.caption2).foregroundStyle(.secondary)
         }
     }
 
+    /// Shows the tempo a pattern carries: ⭐ = locked into its favorite, sugg = banked suggested.
+    private func carriedNote(_ p: C1Pattern) -> String {
+        if let t = favorites.tempo(for: p) { return " · ⭐\(t)" }
+        if let t = suggested.tempo(for: p) { return " · sugg \(t)" }
+        return ""
+    }
+
     private func possibleListRows(highlight: Int?) -> some View {
-        ForEach(Array(voice.possibles.enumerated()), id: \.element) { idx, p in
+        ForEach(Array(voice.possibles.enumerated()), id: \.element) { idx, pick in
             HStack {
                 Text("\(idx + 1).").font(.caption).foregroundStyle(.secondary)
-                Text(p.name)
+                Text(pick.pattern.name)
                     .font(.caption)
                     .bold(idx == highlight)
+                if let t = pick.tempoBPM {
+                    Text("\(t)")
+                        .font(.caption2).bold()
+                        .padding(.horizontal, 4).padding(.vertical, 1)
+                        .background(Color.blue.opacity(0.2))
+                        .clipShape(Capsule())
+                }
                 Spacer()
-                Text(p.midiLabel).font(.caption2).foregroundStyle(.secondary)
+                Text(pick.pattern.midiLabel).font(.caption2).foregroundStyle(.secondary)
             }
             .listRowBackground(idx == highlight ? Color.purple.opacity(0.15) : Color.clear)
         }
