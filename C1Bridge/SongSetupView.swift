@@ -7,6 +7,7 @@ import UIKit
 struct SongSetupView: View {
     @ObservedObject private var voice = VoiceCommandManager.shared
     @ObservedObject private var presets = PresetStore.shared
+    @ObservedObject private var favorites = FavoritesStore.shared
     @State private var searchText = ""
     @State private var presetName = ""
     @FocusState private var nameFieldFocused: Bool
@@ -331,8 +332,25 @@ struct SongSetupView: View {
 
     private func samplingHeader(_ p: C1Pattern, title: String) -> some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(p.name).font(.title3).bold()
+            HStack {
+                Text(title).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if let t = voice.tempoBPM {
+                    Text("Tempo \(t)")
+                        .font(.caption).bold()
+                        .foregroundStyle(.blue)
+                }
+            }
+            HStack {
+                Text(p.name).font(.title3).bold()
+                Spacer()
+                Button { favorites.toggle(p) } label: {
+                    Image(systemName: favorites.isFavorite(p) ? "star.fill" : "star")
+                        .font(.title3)
+                        .foregroundStyle(.yellow)
+                }
+                .buttonStyle(.plain)
+            }
             Text("\(p.subtitle) · \(p.midiLabel)").font(.caption2).foregroundStyle(.secondary)
         }
     }

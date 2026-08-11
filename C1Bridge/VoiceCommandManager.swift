@@ -21,6 +21,8 @@ import UIKit
 ///   "use front" / "use rear"                  -> put the reviewed pattern on that paddle slot
 ///                                                (one pattern per paddle; replacing asks "are you sure?")
 ///   "end"                                     -> leave review mode
+///   "favorite" / "unfavorite"                 -> star/unstar the current pattern (persists)
+///   "sample guitar favorites"                 -> sweep only your starred patterns for that instrument
 ///   "stop listening"                          -> mic off
 @MainActor
 final class VoiceCommandManager: ObservableObject {
@@ -49,6 +51,8 @@ final class VoiceCommandManager: ObservableObject {
     @Published private(set) var sampleInstrument: String?
     /// A pattern awaiting "are you sure?" confirmation before replacing the paddle's current choice.
     private var pendingReplace: C1Pattern?
+    /// True while sweeping a favorites-only pool (shows in status text).
+    private var samplingFavorites = false
 
     // MARK: - Speech internals
 
@@ -252,6 +256,15 @@ final class VoiceCommandManager: ObservableObject {
             if sampleMode != .off { sampleMode = .off }
             statusLine = "Possible List cleared."
             return
+        }
+
+        // Favorites (work in any mode — they apply to whatever pattern is current).
+        if ["favorite", "favourite", "star", "star this", "like", "like it", "like this",
+            "love it", "love this", "fav", "add favorite", "mark favorite", "thats a keeper"].contains(norm) {
+            favoriteCurrent(); return
+        }
+        if ["unfavorite", "unfavourite", "unstar", "unstar this", "remove favorite", "not a favorite"].contains(norm) {
+            unfavoriteCurrent(); return
         }
 
         // Mode-scoped commands win over the general grammar.
@@ -464,15 +477,23 @@ final class VoiceCommandManager: ObservableObject {
             break
         }
         let startAt = Self.firstInt(in: text) ?? 1
+        let favsOnly = text.contains("fav")
         guard let inst = instrument else {
             statusLine = "Sample which instrument? Say \"sample guitar\", \"sample piano\", \"sample bass\", or \"sample drums\"."
             return
         }
-        let pool = PatternLibrary.all
-            .filter { $0.instrument == inst && $0.paddle == paddle }
-            .sorted { $0.program < $1.program }
+        let pool: [C1Pattern]
+        if favsOnly {
+            pool = FavoritesStore.shared.pool(instrument: inst, paddle: paddle)
+        } else {
+            pool = PatternLibrary.all
+                .filter { $0.instrument == inst && $0.paddle == paddle }
+                .sorted { $0.program < $1.program }
+        }
         guard !pool.isEmpty else {
-            statusLine = "No \(inst) \(paddle) patterns in the library."
+            statusLine = favsOnly
+                ? "No \(inst) favorites yet — say \"favorite\" while sampling to star some."
+                : "No \(inst) \(paddle) patterns in the library."
             return
         }
         if !possibles.isEmpty {
@@ -481,6 +502,7 @@ final class VoiceCommandManager: ObservableObject {
         possibles = []
         samplePool = pool
         sampleInstrument = inst
+        samplingFavorites = favsOnly
         sampleIndex = min(max(startAt, 1), pool.count) - 1
         sampleMode = .sampling
         auditionSampled(pool[sampleIndex])
@@ -499,7 +521,9 @@ final class VoiceCommandManager: ObservableObject {
 
     private var samplingStatus: String {
         let total = sampleMode == .sampling ? samplePool.count : possibles.count
-        let what = sampleMode == .sampling ? "Sampling \(sampleInstrument ?? "")" : "Reviewing"
+        let what = sampleMode == .sampling
+            ? "Sampling \(sampleInstrument ?? "")\(samplingFavorites ? " favorites" : "")"
+            : "Reviewing"
         return "\(what) \(sampleIndex + 1) of \(total)"
     }
 
@@ -640,6 +664,32 @@ final class VoiceCommandManager: ObservableObject {
         statusLine = possibles.isEmpty
             ? "Review ended."
             : "Review ended — Possible List kept (\(possibles.count)). Say \"review\" to jump back in, or \"clear possibles\"."
+    }
+
+    // MARK: - Favorites
+
+    func favoriteCurrent() {
+        guard let c = candidate else {
+            statusLine = "Nothing playing to favorite yet — pick a pattern first."
+            return
+        }
+        guard !FavoritesStore.shared.isFavorite(c) else {
+            statusLine = "\(c.name) is already a favorite."
+            return
+        }
+        FavoritesStore.shared.add(c)
+        statusLine = "⭐ \(c.name) added to favorites (\(FavoritesStore.shared.favorites.count) total)."
+        haptic()
+    }
+
+    func unfavoriteCurrent() {
+        guard let c = candidate else {
+            statusLine = "Nothing playing."
+            return
+        }
+        FavoritesStore.shared.remove(c)
+        statusLine = "Removed \(c.name) from favorites."
+        haptic()
     }
 
     func setKey(label: String, program: Int) {

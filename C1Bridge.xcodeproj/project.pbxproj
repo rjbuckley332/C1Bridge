@@ -19,6 +19,7 @@
 		BE4AF02CE383E9CDC5A185E8 /* MIDIHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5ED99013535799D405AD407 /* MIDIHandler.swift */; };
 		C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A9774CF1858FF858FE7190 /* PayloadUtils.swift */; };
 		CD6D84BCE9E96B7AEDCC0FED /* VoiceCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */; };
+		D8A801183D431BA34AE4218F /* FavoritesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFE897889DABAAF6D1C48863 /* FavoritesStore.swift */; };
 		DAEEDDC05E219044C2060CB7 /* C1BridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */; };
 		EA9E65E11ADC1DA139745A4A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D568B76A0D9879217511160B /* Assets.xcassets */; };
 		F6E89EEC3D85968A2432BC12 /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F81C6AB2812C0916D1C1DD /* BLEManager.swift */; };
@@ -39,6 +40,7 @@
 		D568B76A0D9879217511160B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E535164D5605A92869596A10 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandManager.swift; sourceTree = "<group>"; };
+		EFE897889DABAAF6D1C48863 /* FavoritesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesStore.swift; sourceTree = "<group>"; };
 		F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundAudioManager.swift; sourceTree = "<group>"; };
 		F18C144DA9C30B36411E5FC8 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		FA3BF9C8E32D6B7B1963D7BA /* EmbeddedMasterMapping.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddedMasterMapping.swift; sourceTree = "<group>"; };
@@ -55,6 +57,7 @@
 				B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */,
 				AEC8DBA3349D0AB5856A376E /* ContentView.swift */,
 				FA3BF9C8E32D6B7B1963D7BA /* EmbeddedMasterMapping.swift */,
+				EFE897889DABAAF6D1C48863 /* FavoritesStore.swift */,
 				207EB7B6D1B960BE058B7766 /* Info.plist */,
 				F18C144DA9C30B36411E5FC8 /* LaunchScreen.storyboard */,
 				E535164D5605A92869596A10 /* Logger.swift */,
@@ -162,6 +165,7 @@
 				DAEEDDC05E219044C2060CB7 /* C1BridgeApp.swift in Sources */,
 				2B4551BE75149C9408FDE086 /* ContentView.swift in Sources */,
 				0842EAF4E1C2889E1C078E44 /* EmbeddedMasterMapping.swift in Sources */,
+				D8A801183D431BA34AE4218F /* FavoritesStore.swift in Sources */,
 				B305C9578A361367E5E610E8 /* Logger.swift in Sources */,
 				BE4AF02CE383E9CDC5A185E8 /* MIDIHandler.swift in Sources */,
 				3D58B3BD286903E537172CBA /* PatternLibrary.swift in Sources */,
@@ -181,7 +185,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -204,7 +208,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
