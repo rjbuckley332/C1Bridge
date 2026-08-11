@@ -678,9 +678,12 @@ final class VoiceCommandManager: ObservableObject {
     func sampleNext() {
         guard sampleMode == .sampling, !samplePool.isEmpty else { return }
         if sampleIndex >= samplePool.count - 1 {
-            // Rich's rule: stop at the end and begin sampling the short list.
-            statusLine = "That was the last \(sampleInstrument ?? "") pattern."
-            endSampling()
+            // The sweep is a loop (Rich, build 33): the last pattern's Next
+            // wraps back to #1 and keeps going. End is the only way out.
+            sampleIndex = 0
+            let p = samplePool[0]
+            auditionSampled(p)
+            statusLine = "Back to the top — \(samplingStatus): \(p.name). Say Add, Next, or End."
             return
         }
         sampleIndex += 1
@@ -902,11 +905,8 @@ final class VoiceCommandManager: ObservableObject {
 
     func drumNext() {
         guard drumSampling, !drumPool.isEmpty else { return }
-        if drumIndex >= drumPool.count - 1 {
-            statusLine = "That was the last drum groove — say Back to re-hear, or End."
-            return
-        }
-        drumIndex += 1
+        // Same loop rule as the melodic sweep (build 33): wrap to groove #1.
+        drumIndex = (drumIndex + 1) % drumPool.count
         auditionDrum(drumPool[drumIndex])
     }
 
