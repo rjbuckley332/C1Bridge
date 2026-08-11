@@ -400,8 +400,21 @@ final class VoiceCommandManager: ObservableObject {
     func audition(_ p: C1Pattern) {
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
+        reapplyTempoIfSet()
         statusLine = "🎸 \(p.name) — \(p.subtitle) · \(p.midiLabel)." + connWarning
         haptic()
+    }
+
+    /// The C1 loads each pattern's OWN default tempo on selection, stomping whatever
+    /// tempo Rich set. Re-assert his tempo shortly after every pick so the pattern
+    /// plays at HIS speed. Voice and the manual stepper both route through tempoBPM,
+    /// so this covers both. Extend to key/volumes if those turn out to drift too.
+    private func reapplyTempoIfSet() {
+        guard let bpm = tempoBPM else { return }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            MIDIHandler.triggerTempo(bpm: bpm)
+        }
     }
 
     func addCandidate() {
@@ -477,6 +490,7 @@ final class VoiceCommandManager: ObservableObject {
     private func auditionSampled(_ p: C1Pattern) {
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
+        reapplyTempoIfSet()
         if !BLEManager.shared.isConnected {
             statusLine = "⚠️ C1 not connected — tap Scan, then keep going."
         }
@@ -613,6 +627,7 @@ final class VoiceCommandManager: ObservableObject {
         }
         candidate = p
         MIDIHandler.trigger(channel: p.channel, program: p.program)
+        reapplyTempoIfSet()
         let verb = replaced ? "Replaced —" : "Added"
         statusLine = "\(verb) \(p.name) is on the \(p.paddle) paddle (\(p.midiLabel)). Still reviewing \(sampleIndex + 1) of \(possibles.count) — or say End." + connWarning
         AppModel.shared.addLog("Voice: \(replaced ? "replaced" : "added") \(p.name) on \(p.paddle) paddle")
