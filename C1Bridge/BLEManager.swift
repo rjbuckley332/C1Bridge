@@ -170,9 +170,12 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         let services = peripheral.services ?? []
         AppModel.shared.addLog("Services: \(services.map { $0.uuid.uuidString }.joined(separator: ", "))")
 
+        // DIAGNOSTIC RECON: enumerate every characteristic on every service,
+        // not just 00FF/FF03. We want the full GATT map — notify pipes,
+        // readable config strings, OTA/file-transfer services.
         if let services = peripheral.services {
-            for service in services where service.uuid == serviceUUID {
-                peripheral.discoverCharacteristics([writeCharUUID], for: service)
+            for service in services {
+                peripheral.discoverCharacteristics(nil, for: service)
             }
         }
     }
@@ -183,15 +186,73 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             return
         }
 
-        AppModel.shared.addLog("Characteristics for \(service.uuid.uuidString): \((service.characteristics ?? []).map { $0.uuid.uuidString }.joined(separator: ", "))")
-
         for c in service.characteristics ?? [] {
-            if c.uuid == writeCharUUID {
+            AppModel.shared.addLog("Char \(service.uuid.uuidString)/\(c.uuid.uuidString): \(describeProperties(c.properties))")
+            if c.uuid == writeCharUUID && service.uuid == serviceUUID {
                 writeCharacteristic = c
                 AppModel.shared.addLog("Ready to write: Found FF03")
                 drainWriteQueue()
             }
+            // Listen to anything the C1 might say back.
+            if c.properties.contains(.notify) || c.properties.contains(.indicate) {
+                peripheral.setNotifyValue(true, for: c)
+            }
+            // Read anything readable (device info, firmware revision, config).
+            if c.properties.contains(.read) {
+                peripheral.readValue(for: c)
+            }
         }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        if let error {
+            AppModel.shared.addLog("Subscribe failed \(characteristic.uuid.uuidString): \(error.localizedDescription)")
+            return
+        }
+        if characteristic.isNotifying {
+            AppModel.shared.addLog("Subscribed to \(characteristic.uuid.uuidString)")
+        }
+    }
+
+    /// Inbound data recon: log everything the C1 sends us, raw and XOR-decoded.
+    /// Capped per connection so a chatty characteristic can't flood the Activity log.
+    private var rxLogCount = 0
+    private let rxLogCap = 500
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if let error {
+            AppModel.shared.addLog("RX error \(characteristic.uuid.uuidString): \(error.localizedDescription)")
+            return
+        }
+        guard let data = characteristic.value, !data.isEmpty else { return }
+        if rxLogCount >= rxLogCap {
+            if rxLogCount == rxLogCap {
+                AppModel.shared.addLog("RX log cap reached (\(rxLogCap)) — further inbound data suppressed")
+                rxLogCount += 1
+            }
+            return
+        }
+        rxLogCount += 1
+        let rawHex = data.map { String(format: "%02x", $0) }.joined()
+        AppModel.shared.addLog("RX \(characteristic.uuid.uuidString) [\(data.count)b]: \(rawHex)")
+        // Printable ASCII? (device info strings etc.)
+        if data.allSatisfy({ (0x20...0x7e).contains($0) }) {
+            AppModel.shared.addLog("RX ascii \(characteristic.uuid.uuidString): \(String(bytes: data, encoding: .ascii) ?? "")")
+        } else {
+            let decodedHex = data.map { String(format: "%02x", $0 ^ secretKey) }.joined()
+            AppModel.shared.addLog("RX xor5A \(characteristic.uuid.uuidString): \(decodedHex)")
+        }
+    }
+
+    private func describeProperties(_ p: CBCharacteristicProperties) -> String {
+        var out: [String] = []
+        if p.contains(.read) { out.append("read") }
+        if p.contains(.write) { out.append("write") }
+        if p.contains(.writeWithoutResponse) { out.append("writeNoResp") }
+        if p.contains(.notify) { out.append("notify") }
+        if p.contains(.indicate) { out.append("indicate") }
+        if p.contains(.extendedProperties) { out.append("ext") }
+        return out.isEmpty ? "none" : out.joined(separator: ",")
     }
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
