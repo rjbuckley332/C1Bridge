@@ -5,6 +5,9 @@ class MIDIHandler {
     private static var client = MIDIClientRef()
     private static var virtualDestination = MIDIEndpointRef()
     private static var currentKeyBase: UInt8 = 0x20
+    /// Most recent tempo sent to the C1 — the beat engine rides this
+    /// (universal tempo rule: the tempo field is the single source of truth).
+    private static var lastTempoBPM: Int = 120
     private static var isAdvertising = false
 
     // MARK: - KEY TABLE
@@ -188,8 +191,8 @@ class MIDIHandler {
         }
 
         // 3. TEMPO: Channels 5 & 6
-        if channel == 5 { sendHexWithLog("b11e1a0200" + String(format: "%02x", program + 39), name: "\(program + 39) BPM") }
-        else if channel == 6 { sendHexWithLog("b11e1a0200" + String(format: "%02x", program + 168), name: "\(program + 168) BPM") }
+        if channel == 5 { lastTempoBPM = program + 39; sendHexWithLog("b11e1a0200" + String(format: "%02x", program + 39), name: "\(program + 39) BPM") }
+        else if channel == 6 { lastTempoBPM = program + 168; sendHexWithLog("b11e1a0200" + String(format: "%02x", program + 168), name: "\(program + 168) BPM") }
         
         // 4. VOLUME: Channels 8 & 9
         else if (channel == 8 || channel == 9) && program <= 101 {
@@ -197,9 +200,18 @@ class MIDIHandler {
             sendHexWithLog("b11e190200" + String(format: "%02x", program - 1) + inst, name: "Vol \(program - 1)%")
         }
         
-        // 4. GLOBAL RESET: Channel 10 PC 1
+        // 4. GLOBAL RESET: Channel 10 PC 1 — also stops the beat
         else if channel == 10 && program == 1 {
             sendHexWithLog("b11e02010002", name: "Global Reset")
+            BeatPlayer.shared.stop()
+        }
+        // 4b. BEAT: Ch10 PC2 = DUUDU on (at last tempo sent), PC3 = off
+        else if channel == 10 && program == 2 {
+            AppModel.shared.addLog("Trigger: Ch10 PC2 - Beat ON @ \(lastTempoBPM) BPM")
+            BeatPlayer.shared.start(bpm: lastTempoBPM)
+        }
+        else if channel == 10 && program == 3 {
+            BeatPlayer.shared.stop()
         }
     }
 
