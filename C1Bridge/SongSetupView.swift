@@ -9,6 +9,7 @@ struct SongSetupView: View {
     @ObservedObject private var presets = PresetStore.shared
     @ObservedObject private var favorites = FavoritesStore.shared
     @ObservedObject private var suggested = SuggestedTempoStore.shared
+    @ObservedObject private var beat = BeatPlayer.shared
     @State private var searchText = ""
     @State private var presetName = ""
     @FocusState private var nameFieldFocused: Bool
@@ -149,6 +150,11 @@ struct SongSetupView: View {
                         Text(p.midiLabel)
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
+                        Button(role: .destructive) { voice.removePattern(p) } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
                     }
                 }
                 .onDelete { voice.remove(at: $0) }
@@ -156,14 +162,14 @@ struct SongSetupView: View {
         } header: {
             Text("This Song's Patterns")
         } footer: {
-            Text("Guitar Front + Rear hold two patterns at once — add both if you switch mid-song.")
+            Text("Guitar Front + Rear hold two patterns at once — add both if you switch mid-song. Made a mistake? Swipe left or tap the trash to remove it.")
         }
     }
 
     // MARK: - Key / tempo / volumes
 
     private var settingsSection: some View {
-        Section("Song Settings") {
+        Section {
             HStack {
                 Text("Key")
                 Spacer()
@@ -200,6 +206,27 @@ struct SongSetupView: View {
             }
 
             HStack {
+                Text("Beat")
+                Spacer()
+                Text(beat.isPlaying ? "DUUDU @ \(beat.currentBPM)" : (voice.tempoBPM.map { "starts @ \($0)" } ?? "rides last tempo sent"))
+                    .font(.caption)
+                    .foregroundStyle(beat.isPlaying ? .blue : .secondary)
+                Button(beat.isPlaying ? "Stop" : "Start") { voice.setBeat(!beat.isPlaying) }
+                    .buttonStyle(.borderedProminent)
+                    .tint(beat.isPlaying ? .red : .green)
+            }
+
+            Toggle("Include beat in recipe", isOn: $voice.beatInRecipe)
+                .font(.subheadline)
+
+            Picker("Beat style", selection: $beat.currentPattern) {
+                ForEach(BeatPattern.allCases) { p in
+                    Text("\(p.rawValue) — \(p.subtitle)").tag(p)
+                }
+            }
+            .font(.subheadline)
+
+            HStack {
                 Text("Drums Vol")
                 Spacer()
                 if let d = voice.drumVol {
@@ -224,6 +251,10 @@ struct SongSetupView: View {
                         .font(.caption)
                 }
             }
+        } header: {
+            Text("Song Settings")
+        } footer: {
+            Text("Beat starts at the tempo field (also sent to the C1), or the last tempo sent if the field is empty. A playing beat follows every tempo change live. With 'Include beat' on, the saved song starts DUUDU automatically when OnSong loads it.")
         }
     }
 
@@ -273,6 +304,9 @@ struct SongSetupView: View {
         }
         if let b = voice.bassVol {
             lines.append("Bass \(b)% — Ch 9 · PC \(b + 1)")
+        }
+        if voice.beatInRecipe {
+            lines.append("Beat \(BeatPlayer.shared.currentPattern.rawValue) on load — Ch 10 · PC 2 (stop: PC 3)")
         }
         return lines.isEmpty ? "Nothing yet." : lines.joined(separator: "\n")
     }
@@ -389,9 +423,17 @@ struct SongSetupView: View {
                 Button("Sample Drums") { voice.startDrumSampling() }
                 if !voice.drumItems.isEmpty {
                     ForEach(voice.drumItems, id: \.program) { d in
-                        Text("\(d.paddle): \(d.name)")
+                        HStack {
+                            Text("\(d.paddle): \(d.name)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button(role: .destructive) { voice.removeDrum(d) } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -521,6 +563,7 @@ struct SongSetupView: View {
         var bits: [String] = p.patterns.map { $0.name }
         if let k = p.keyLabel { bits.append("Key \(k)") }
         if let t = p.tempoBPM { bits.append("\(t) BPM") }
+        if p.beatEnabled { bits.append(p.beatPattern.map { "Beat \($0)" } ?? "Beat") }
         return bits.isEmpty ? "(empty)" : bits.joined(separator: " · ")
     }
 }

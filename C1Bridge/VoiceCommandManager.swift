@@ -55,6 +55,8 @@ final class VoiceCommandManager: ObservableObject {
     @Published private(set) var keyLabel: String?
     @Published private(set) var keyProgram: Int?
     @Published private(set) var tempoBPM: Int?
+    /// "Include beat in recipe" toggle — saved into the preset, starts DUUDU on load.
+    @Published var beatInRecipe = false
     @Published private(set) var drumVol: Int?
     @Published private(set) var bassVol: Int?
 
@@ -566,9 +568,25 @@ final class VoiceCommandManager: ObservableObject {
         items.remove(atOffsets: offsets)
     }
 
+    /// Removes one pattern from the song (trash button on its row).
+    func removePattern(_ p: C1Pattern) {
+        items.removeAll { $0.id == p.id }
+        statusLine = "Removed \(p.name)."
+        haptic()
+    }
+
+    /// Removes one drum slot from the song (trash button on its row) —
+    /// drumItems had no delete path at all before this.
+    func removeDrum(_ d: C1Pattern) {
+        drumItems.removeAll { $0.id == d.id }
+        statusLine = "Removed \(d.paddle) drums (\(d.name))."
+        haptic()
+    }
+
     func clearAll() {
         items.removeAll()
         candidate = nil
+        beatInRecipe = false
         statusLine = "Cleared — fresh song."
     }
 
@@ -999,6 +1017,23 @@ final class VoiceCommandManager: ObservableObject {
     /// (presets fire from OnSong, outside the voice flow).
     func notePresetTempo(_ bpm: Int) { tempoBPM = bpm }
 
+    /// Beat trigger from Song Setup. The tempo field is the source of truth:
+    /// starting the beat sends the field's tempo to the C1 first (which also
+    /// banks it as last-sent for OnSong's Ch10 PC2), then starts the DUUDU
+    /// loop at that tempo. Field empty → rides the last tempo sent.
+    func setBeat(_ on: Bool) {
+        if on {
+            let bpm = tempoBPM ?? MIDIHandler.lastSentTempoBPM
+            if let t = tempoBPM { MIDIHandler.triggerTempo(bpm: t) }
+            BeatPlayer.shared.start(bpm: bpm)
+            statusLine = "Beat on — DUUDU @ \(bpm) BPM."
+        } else {
+            BeatPlayer.shared.stop()
+            statusLine = "Beat off."
+        }
+        haptic()
+    }
+
     func setTempo(_ bpm: Int) {
         tempoBPM = bpm
         MIDIHandler.triggerTempo(bpm: bpm)
@@ -1020,7 +1055,7 @@ final class VoiceCommandManager: ObservableObject {
     }
 
     func savePreset(named name: String) {
-        guard !items.isEmpty || !drumItems.isEmpty || keyProgram != nil || tempoBPM != nil || drumVol != nil || bassVol != nil else {
+        guard !items.isEmpty || !drumItems.isEmpty || keyProgram != nil || tempoBPM != nil || drumVol != nil || bassVol != nil || beatInRecipe else {
             statusLine = "Nothing to save yet — add a pattern or key first."
             return
         }
@@ -1031,7 +1066,9 @@ final class VoiceCommandManager: ObservableObject {
             keyLabel: keyLabel,
             tempoBPM: tempoBPM,
             drumVol: drumVol,
-            bassVol: bassVol
+            bassVol: bassVol,
+            beatEnabled: beatInRecipe,
+            beatPattern: beatInRecipe ? BeatPlayer.shared.currentPattern.rawValue : nil
         )
         let number = PresetStore.shared.add(preset)
         statusLine = "Saved \"\(preset.name)\" as song #\(number) — in OnSong: Ch 16 · PC \(number)."
@@ -1050,6 +1087,10 @@ final class VoiceCommandManager: ObservableObject {
         tempoBPM = preset.tempoBPM
         drumVol = preset.drumVol
         bassVol = preset.bassVol
+        beatInRecipe = preset.beatEnabled
+        if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
+            BeatPlayer.shared.currentPattern = p
+        }
         candidate = nil
         statusLine = "Editing \"\(preset.name)\" — make changes, then save with the same name."
     }
@@ -1063,6 +1104,10 @@ final class VoiceCommandManager: ObservableObject {
         tempoBPM = preset.tempoBPM
         drumVol = preset.drumVol
         bassVol = preset.bassVol
+        beatInRecipe = preset.beatEnabled
+        if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
+            BeatPlayer.shared.currentPattern = p
+        }
         candidate = nil
         PresetStore.shared.apply(preset)
         statusLine = "Loaded \"\(preset.name)\" — sending to the C1."

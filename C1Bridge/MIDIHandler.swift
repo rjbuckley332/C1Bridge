@@ -7,7 +7,19 @@ class MIDIHandler {
     private static var currentKeyBase: UInt8 = 0x20
     /// Most recent tempo sent to the C1 — the beat engine rides this
     /// (universal tempo rule: the tempo field is the single source of truth).
-    private static var lastTempoBPM: Int = 120
+    /// nil = no tempo sent this session (build 41: lets the guitar-start
+    /// follow distinguish "song tempo banked" from "fresh session").
+    private static var lastTempoBPM: Int? = nil
+    /// Read-only view of the last tempo sent — UI fallback when the tempo field is empty.
+    static var lastSentTempoBPM: Int { lastTempoBPM ?? 120 }
+    /// True once WE have sent a tempo this session (preset/voice/stepper) —
+    /// i.e. there IS a song tempo to defend against tap-tempo contamination.
+    static var hasSongTempo: Bool { lastTempoBPM != nil }
+    /// Bank an externally-set tempo (guitar tap-tempo we decided to honor) as
+    /// the current tempo truth WITHOUT sending it — the guitar already has it.
+    static func bankExternalTempo(bpm: Int) {
+        lastTempoBPM = bpm
+    }
     private static var isAdvertising = false
 
     // MARK: - KEY TABLE
@@ -193,6 +205,11 @@ class MIDIHandler {
         // 3. TEMPO: Channels 5 & 6
         if channel == 5 { lastTempoBPM = program + 39; sendHexWithLog("b11e1a0200" + String(format: "%02x", program + 39), name: "\(program + 39) BPM") }
         else if channel == 6 { lastTempoBPM = program + 168; sendHexWithLog("b11e1a0200" + String(format: "%02x", program + 168), name: "\(program + 168) BPM") }
+        // Live-follow: a playing beat rides every tempo that lands on the wire
+        // (OnSong preset, tempo stepper, voice) — no PC3/PC2 toggle needed.
+        if (channel == 5 || channel == 6) && BeatPlayer.shared.isPlaying {
+            if let t = lastTempoBPM { BeatPlayer.shared.start(bpm: t) }
+        }
         
         // 4. VOLUME: Channels 8 & 9
         else if (channel == 8 || channel == 9) && program <= 101 {
@@ -207,8 +224,8 @@ class MIDIHandler {
         }
         // 4b. BEAT: Ch10 PC2 = DUUDU on (at last tempo sent), PC3 = off
         else if channel == 10 && program == 2 {
-            AppModel.shared.addLog("Trigger: Ch10 PC2 - Beat ON @ \(lastTempoBPM) BPM")
-            BeatPlayer.shared.start(bpm: lastTempoBPM)
+            AppModel.shared.addLog("Trigger: Ch10 PC2 - Beat ON @ \(lastTempoBPM ?? 120) BPM")
+            BeatPlayer.shared.start(bpm: lastTempoBPM ?? 120)
         }
         else if channel == 10 && program == 3 {
             BeatPlayer.shared.stop()
@@ -217,16 +234,23 @@ class MIDIHandler {
 
     // MARK: - Tempo helpers (shared by voice + presets)
     static func triggerTempo(bpm: Int) {
-        if bpm <= 166 {
+        if bpm <= 167 {
             trigger(channel: 5, program: bpm - 39)
+        } else if bpm == 168 {
+            // 168 has no PC in either channel map (Ch5 tops out at PC128 = 167,
+            // Ch6 PC1 = 169). Program 0 rides the Ch6 branch, which still sends
+            // the true tempo byte to the C1 and banks lastTempoBPM correctly.
+            trigger(channel: 6, program: 0)
         } else {
             trigger(channel: 6, program: bpm - 168)
         }
     }
 
     static func tempoMidiLabel(bpm: Int) -> String {
-        if bpm <= 166 {
+        if bpm <= 167 {
             return "Ch 5 · PC \(bpm - 39)"
+        } else if bpm == 168 {
+            return "app direct · no PC"
         } else {
             return "Ch 6 · PC \(bpm - 168)"
         }

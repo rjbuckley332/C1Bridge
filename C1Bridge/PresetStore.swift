@@ -38,9 +38,14 @@ struct SongPreset: Identifiable, Codable, Hashable {
     var tempoBPM: Int?
     var drumVol: Int?
     var bassVol: Int?
+    /// Start the DUUDU beat automatically when this preset loads.
+    /// Optional-with-default so pre-beat JSON decodes as false.
+    var beatEnabled: Bool = false
+    /// Which beat pattern to start (nil = whatever is currently selected).
+    var beatPattern: String? = nil
     var triggerNumber: Int = 0 // 0 = legacy/unassigned; migration fills it
 
-    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, triggerNumber: Int = 0) {
+    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, triggerNumber: Int = 0) {
         self.id = id
         self.name = name
         self.patterns = patterns
@@ -49,6 +54,8 @@ struct SongPreset: Identifiable, Codable, Hashable {
         self.tempoBPM = tempoBPM
         self.drumVol = drumVol
         self.bassVol = bassVol
+        self.beatEnabled = beatEnabled
+        self.beatPattern = beatPattern
         self.triggerNumber = triggerNumber
     }
 
@@ -62,6 +69,8 @@ struct SongPreset: Identifiable, Codable, Hashable {
         tempoBPM = try c.decodeIfPresent(Int.self, forKey: .tempoBPM)
         drumVol = try c.decodeIfPresent(Int.self, forKey: .drumVol)
         bassVol = try c.decodeIfPresent(Int.self, forKey: .bassVol)
+        beatEnabled = try c.decodeIfPresent(Bool.self, forKey: .beatEnabled) ?? false
+        beatPattern = try c.decodeIfPresent(String.self, forKey: .beatPattern)
         triggerNumber = try c.decodeIfPresent(Int.self, forKey: .triggerNumber) ?? 0
     }
 }
@@ -150,6 +159,16 @@ final class PresetStore: ObservableObject {
             }
             if let bv = preset.bassVol {
                 MIDIHandler.trigger(channel: 9, program: bv + 1)
+            }
+            // Beat rides the recipe: starts after every send so the preset's
+            // tempo is already banked; a playing beat was already retempo'd by
+            // the live-follow hook, and start() no-ops if the tempo matches.
+            // beatEnabled == false leaves the beat untouched (no surprise stop).
+            if preset.beatEnabled {
+                if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
+                    BeatPlayer.shared.currentPattern = p
+                }
+                BeatPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
             }
         }
     }

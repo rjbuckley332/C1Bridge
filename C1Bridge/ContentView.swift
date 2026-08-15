@@ -118,14 +118,18 @@ struct ContentView: View {
     // MARK: - Tempo Reference
     private var tempoReferenceView: some View {
         List {
-            Section("Channel 5: 40-166 BPM") {
-                ForEach(40...166, id: \.self) { bpm in
+            Section {
+                ForEach(40...167, id: \.self) { bpm in
                     HStack {
                         Text("\(bpm) BPM")
                         Spacer()
                         Text("PC \(bpm - 39)").foregroundStyle(.secondary)
                     }
                 }
+            } header: {
+                Text("Channel 5: 40-167 BPM")
+            } footer: {
+                Text("168 BPM is app-direct only — no MIDI PC maps to it (Ch 5 tops out at PC 128 = 167, Ch 6 starts at 169).")
             }
             Section("Channel 6: 169-240 BPM") {
                 ForEach(169...240, id: \.self) { bpm in

@@ -115,7 +115,21 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         isConnected = true
         connectedPeripheralName = peripheral.name
-        AppModel.shared.addLog("Connected to \(peripheral.name ?? "C1")")
+        rxLogCount = 0
+        lastRxKey = nil
+        lastRxRepeat = 0
+        lastStatusMask = nil
+        lastStatusBytes = nil
+        beatFlagRiseAt = nil
+        lastBeatFlagChangeAt = nil
+        lastByte5RiseAt = nil
+        pendingMuteTapAt = nil
+        paddleStartThisHold = false
+        guitarDrumsPlaying = false
+        lastTempoByteChangeAt = nil
+        pendingTempoFollowAt = nil
+        byte5_40RiseAt = nil
+        AppModel.shared.addLog("Connected to \(peripheral.name ?? "C1") — RX recon armed")
         peripheral.discoverServices(nil)
     }
 
@@ -215,9 +229,53 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     }
 
     /// Inbound data recon: log everything the C1 sends us, raw and XOR-decoded.
-    /// Capped per connection so a chatty characteristic can't flood the Activity log.
+    /// Resets on every connect so recon can't go deaf mid-session. Consecutive
+    /// identical packets are collapsed into a "repeated ×N" line — a NEW packet
+    /// (like a guitar button press) stands out instead of drowning in keepalives.
     private var rxLogCount = 0
-    private let rxLogCap = 500
+    private let rxLogCap = 3000
+    private var lastRxKey: String?
+    private var lastRxRepeat = 0
+    /// FF01 status-stream diff-watch state (see didUpdateValueFor).
+    private var lastStatusMask: [UInt8]?
+    private var lastStatusBytes: [UInt8]?
+    /// Beat-flag rise timestamp (the beat pad is momentary).
+    private var beatFlagRiseAt: Date?
+    /// Tap-tempo follow state (build 44): byte[7] change time + debounce mark.
+    private var lastTempoByteChangeAt: Date?
+    private var pendingTempoFollowAt: Date?
+    /// Pulse-width experiment state (build 46): rise time of the current byte[5]
+    /// 0x40 pulse, so the fall can log the hold duration in ms — a SLIDE drags
+    /// across the pad (long hold) vs a quick TAP, per Rich 14:42 (tap mid-song
+    /// = drum transition between the two stored variations; slide = stop with
+    /// a closing lick — but the wire sends one identical pulse for each).
+    private var byte5_40RiseAt: Date?
+    /// Last time the byte[1] beat-alive flag changed. Used to suppress drum-
+    /// button false triggers: paddle-starting drums pulses byte[5] (hit
+    /// velocities) in the same instant the byte[1] flag flips (recon 2026-08-13).
+    private var lastBeatFlagChangeAt: Date?
+    /// Last time byte[5] rose to ANY nonzero value. Strum-paddle/drum hits are
+    /// velocity pulses (0x0c…), the mute-pad tap is a fixed 0x40 — but a hard
+    /// paddle hit CAN also read exactly 0x40 (Rich 2026-08-15: hold beat pad +
+    /// paddle killed the beat it just started). Burst detection: a 0x40 that
+    /// lands amid other byte[5] pulses, or seconds after a beat-flag rise, is a
+    /// paddle hit — NOT a mute tap.
+    private var lastByte5RiseAt: Date?
+    /// True once a paddle hit / drum-start event has fired during the current
+    /// beat-pad hold — i.e. the drums latched this gesture (build 42).
+    private var paddleStartThisHold = false
+    /// True while we believe the guitar's drums are playing (set on paddle/5b
+    /// starts, cleared on slide-stop + connect). Build 47: gates the mute-press
+    /// verdict window — a tap (transition) and a slide (stop) send the same
+    /// 0x40 pulse, but only a slide is followed by drum-stop EVENT packets
+    /// ([2b] 08XX + byte[6] increments, ~2s later after the closing lick).
+    private var guitarDrumsPlaying = false
+    /// Build 40 forward-guard: a byte[5] 0x40 pulse only stops our beat after
+    /// surviving a 0.35s confirmation window with no further flag/pulse
+    /// activity (Rich's 5:21 capture showed a 0x40 arriving COLD inside a
+    /// start gesture — backward guards can't see a burst that hasn't happened
+    /// yet). Newest candidate supersedes any pending one.
+    private var pendingMuteTapAt: Date?
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error {
@@ -225,6 +283,244 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             return
         }
         guard let data = characteristic.value, !data.isEmpty else { return }
+        let rawHex = data.map { String(format: "%02x", $0) }.joined()
+
+        // FF01 14-byte live-status stream: bytes 9-11 are a ticking ASCII
+        // counter ("302"→"312"→"322") that floods the log. Suppress the
+        // chatter; emit a diff line only when a REAL byte changes — byte 7
+        // is tempo (proved: 0x50=80 → 0x82=130), byte 8 (dc↔db) is the
+        // suspected beat-state/gesture byte we're hunting.
+        if characteristic.uuid.uuidString == "FF01", data.count == 14 {
+            let bytes = [UInt8](data)
+            var masked = bytes
+            masked[9] = 0; masked[10] = 0; masked[11] = 0
+            let prevMask = lastStatusMask, prevBytes = lastStatusBytes
+            lastStatusMask = masked
+            lastStatusBytes = bytes
+            guard let lastMask = prevMask, let last = prevBytes else {
+                AppModel.shared.addLog("FF01 status baseline: \(rawHex)")
+                return
+            }
+            guard masked != lastMask else { return }
+            for i in 0..<14 where last[i] != bytes[i] && !(9...11).contains(i) {
+                AppModel.shared.addLog("FF01 byte[\(i)]: \(String(format: "%02x", last[i]))→\(String(format: "%02x", bytes[i])) (\(last[i])→\(bytes[i]))")
+            }
+            // Build 40: full-frame context at every real change — bytes 4/12/13
+            // (beat-flash) etc. at each event, for definitive gesture mapping.
+            AppModel.shared.addLog("FF01 frame: \(rawHex)")
+            // TAP-TEMPO SOURCE (build 44): byte[7] moves when Rich taps the
+            // beat pad to retempo the guitar — ride it (debounced inside).
+            if last[7] != bytes[7] {
+                lastTempoByteChangeAt = Date()
+                scheduleTempoFollow(candidate: Int(bytes[7]))
+            }
+            // TRANSPORT FLASH (build 49): bytes 4/12/13 blip together at some
+            // drum transport moments — crucially at the 15:22 drums-STOP inside
+            // a mute window (the 08XX packets never came that time), but also
+            // at the 15:01 start (no window armed). Inside an armed verdict
+            // window it means the slide's stop landed → stop ours. Observed
+            // transitions flash nothing (3 samples), so in practice this is
+            // slide-specific. Verified: BeatPlayer.stop() sends no BLE, so the
+            // 15:01 08XX packets were genuinely guitar-originated.
+            if pendingMuteTapAt != nil,
+               last[4] != bytes[4] || last[12] != bytes[12] || last[13] != bytes[13] {
+                pendingMuteTapAt = nil
+                guitarDrumsPlaying = false
+                AppModel.shared.addLog("Slide stop — transport flash — stopping DUUDU")
+                BeatPlayer.shared.stop()
+            }
+            // GUITAR BEAT SYNC (recon 2026-08-13…15): byte[1] bit 0x10 tracks
+            // the BEAT PAD being HELD — not the drums' latch state (it falls on
+            // pad release even after a paddle start, 5:21 capture). Control
+            // model per Rich: START = hold beat pad + hit the strum paddle (the
+            // hit assigns/starts the beat); STOP = slide the MUTE PAD (and ONLY
+            // that, 12:23); beat-pad TAPS are his TEMPO input (tap-tempo, 12:35)
+            // — never a start/stop for ours. Build 44:
+            //   rise → arm only (start immediately ONLY if a hit pulse fired in
+            //          the last 0.5s — coalesced-frame insurance)
+            //   byte[5] hit pulse or 5-byte 02f0000000 drum-start event while
+            //          the pad is held → START ours (tempo rules below)
+            //   fall → no action for ours (release after a hit-start just logs)
+            //   byte[7] change while ours plays → 1s-debounced tap-tempo follow
+            //   Tempo on start: a byte[7] that moved WITHIN the gesture window
+            //   (<2s) is contamination → banked song tempo wins + reassert; a
+            //   stable byte[7] is a deliberate tap → honor + bank it.
+            let beatWasSet = (last[1] & 0x10) != 0
+            let beatNowSet = (bytes[1] & 0x10) != 0
+            if !beatWasSet && beatNowSet {
+                lastBeatFlagChangeAt = Date()
+                beatFlagRiseAt = Date()
+                paddleStartThisHold = false
+                // A hit pulse in the last 0.5s means the paddle landed just
+                // before the flag registered (coalesced frames) — start now.
+                if let lastHit = lastByte5RiseAt, Date().timeIntervalSince(lastHit) < 0.5 {
+                    paddleStartThisHold = true
+                    guitarDrumsPlaying = true
+                    startBeatFromGuitar(guitarBpm: Int(bytes[7]), reason: "paddle start")
+                }
+            } else if beatWasSet && !beatNowSet {
+                lastBeatFlagChangeAt = Date()
+                if paddleStartThisHold, BeatPlayer.shared.isPlaying {
+                    AppModel.shared.addLog("Beat pad released after paddle start — drums latched, DUUDU stays on")
+                }
+                // Build 44: taps/holds are TEMPO input only — never a stop or
+                // start for ours (Rich 12:35: the tap-stop killed ours when he
+                // tapped to bump tempo — "8 bars and it stops").
+                paddleStartThisHold = false
+            }
+            // MUTE PAD TAP 0x40 (Rich 2026-08-15 05:29 correction: "It stopped
+            // with the mute button" — the 0x40 source IS the mute pad; build
+            // 40's beat-pad attribution was wrong). Strum-paddle hits ride the
+            // same byte but are velocity-sensitive (e.g. 0x0c — though a hard
+            // hit can read exactly 0x40). A 0x40 rise stops our beat only as
+            // an ISOLATED, CONFIRMED press — backward guards:
+            //   1. ≥1s since any byte[1] beat-flag change
+            //   2. ≥1.5s since the previous byte[5] pulse of ANY value
+            //   3. ≥3s since the last beat-flag RISE (hold-then-hit window)
+            // …then a forward guard: wait 0.35s; if a flag change or another
+            // byte[5] pulse lands in the window it was a gesture burst → abort.
+            if last[5] == 0 && bytes[5] != 0 {
+                let v = bytes[5]
+                let now = Date()
+                if beatNowSet {
+                    // PADDLE HIT while the beat pad is held = the manual's
+                    // "hold beat pad + hit paddle" START (Rich 06:08: the beat
+                    // starts when the paddle assigns it, not at pad touch).
+                    // First hit per hold starts ours; later hits in the same
+                    // hold are just strumming. Also cancels any pending
+                    // mute-tap candidate — a 0x40 here is a hard hit, never a
+                    // mute tap.
+                    pendingMuteTapAt = nil
+                    if !paddleStartThisHold {
+                        paddleStartThisHold = true
+                        guitarDrumsPlaying = true
+                        startBeatFromGuitar(guitarBpm: Int(bytes[7]), reason: "paddle start")
+                    }
+                } else if v == 0x40 {
+                    byte5_40RiseAt = now
+                    if guitarDrumsPlaying {
+                        // MUTE PRESS WITH DRUMS PLAYING (build 51). Rich 15:39:
+                        // the mute pad ONLY stops the drums (with a ~1-bar
+                        // closing lick). Rich 16:27: OUR side plays a closing
+                        // diddy with it — playEndingThenStop() renders a 1-bar
+                        // ending figure (starts immediately) and stops the beat
+                        // when it completes, riding the guitar's lick. If the
+                        // drums' own stop signal (08XX / transport flash) lands
+                        // first, those hooks cut straight to the stop. The
+                        // cleanup timer just disarms the window afterwards so a
+                        // stray late event can't stop some future beat.
+                        pendingTempoFollowAt = nil
+                        pendingMuteTapAt = now
+                        guitarDrumsPlaying = false
+                        AppModel.shared.addLog("Mute pad — closing diddy…")
+                        BeatPlayer.shared.playEndingThenStop()
+                        // Backstop: if the diddy's completion ever goes missing,
+                        // guarantee the stop ~1 bar + 1s after the press. Silent
+                        // when the diddy already stopped us (isPlaying false).
+                        let bpm = max(40, BeatPlayer.shared.currentBPM)
+                        let bar = 60.0 / Double(bpm) * 4.0
+                        DispatchQueue.main.asyncAfter(deadline: .now() + bar + 1.0) { [weak self] in
+                            guard let self, self.pendingMuteTapAt == now else { return }
+                            self.pendingMuteTapAt = nil
+                            if BeatPlayer.shared.isPlaying {
+                                AppModel.shared.addLog("Diddy backstop — stopping DUUDU")
+                                BeatPlayer.shared.stop()
+                            }
+                        }
+                    } else {
+                        // MUTE PRESS WITH DRUMS OFF (13:07-validated): a direct
+                        // stop intent for ours. Guards + 0.35s forward-confirm
+                        // protect against hard paddle hits reading exactly 0x40.
+                        let sinceFlagChange = lastBeatFlagChangeAt.map { now.timeIntervalSince($0) } ?? .infinity
+                        let sincePrevPulse = lastByte5RiseAt.map { now.timeIntervalSince($0) } ?? .infinity
+                        let sinceRise = beatFlagRiseAt.map { now.timeIntervalSince($0) } ?? .infinity
+                        if sinceFlagChange < 1.0 {
+                            AppModel.shared.addLog("byte[5] 0x40 ignored — beat flag just changed (paddle-start burst)")
+                        } else if sincePrevPulse < 1.5 {
+                            AppModel.shared.addLog("byte[5] 0x40 ignored — paddle-hit burst, not a pad press")
+                        } else if sinceRise < 3.0 {
+                            AppModel.shared.addLog("byte[5] 0x40 ignored — inside hold+paddle start window")
+                        } else {
+                            pendingMuteTapAt = now
+                            AppModel.shared.addLog("byte[5] 0x40 — mute pad press, confirming (0.35s)…")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                                guard let self, self.pendingMuteTapAt == now else { return }
+                                self.pendingMuteTapAt = nil
+                                let newFlagActivity = self.lastBeatFlagChangeAt.map { $0 > now } ?? false
+                                let newPulse = self.lastByte5RiseAt.map { $0 > now } ?? false
+                                if newFlagActivity || newPulse {
+                                    AppModel.shared.addLog("byte[5] 0x40 stop cancelled — gesture burst followed")
+                                } else {
+                                    AppModel.shared.addLog("Mute pad confirmed — stopping DUUDU")
+                                    BeatPlayer.shared.stop()
+                                }
+                            }
+                        }
+                    }
+                }
+                lastByte5RiseAt = now
+            }
+            // PULSE-WIDTH PROBE (build 46): log how long a 0x40 was held.
+            // Hypothesis: slide = long drag, tap = short press. If the widths
+            // cluster, build 47 can wire tap=transition (keep playing) vs
+            // slide=stop — the two intents the C1 assigns to the mute pad.
+            if last[5] == 0x40 && bytes[5] == 0, let riseAt = byte5_40RiseAt {
+                let ms = Int(Date().timeIntervalSince(riseAt) * 1000)
+                AppModel.shared.addLog("byte[5] 0x40 held for \(ms)ms")
+                byte5_40RiseAt = nil
+            }
+            return
+        }
+
+        // DRUM-STOP EVENT (build 47/48): unsolicited FF01 2-byte packets with
+        // first byte 0x08 (0846, 0847 — second byte mirrors the byte[6] event
+        // counter) follow a mute-pad SLIDE while drums play — never on a
+        // transition tap, never when drums are off (15:01 vs 14:49/13:07
+        // captures). Build 48: trust the packet whenever drums are believed
+        // playing — the 3s verdict window can expire before the closing lick
+        // ends at slow tempos, and a late packet must still stop ours.
+        if characteristic.uuid.uuidString == "FF01", data.count == 2 {
+            let pkt2 = [UInt8](data)
+            if pkt2[0] == 0x08 {
+                if pendingMuteTapAt != nil || guitarDrumsPlaying {
+                    pendingMuteTapAt = nil
+                    guitarDrumsPlaying = false
+                    AppModel.shared.addLog("Slide stop — drums ended — stopping DUUDU")
+                    BeatPlayer.shared.stop()
+                } else {
+                    AppModel.shared.addLog("Drum-stop event 08\(String(format: "%02x", pkt2[1])) — ignored")
+                }
+            }
+        }
+
+        // DRUM-START EVENT (build 42): the discrete 5-byte FF01 packet
+        // 02f0000000 fired exactly at the paddle-start moment in the 5:21
+        // capture — never at pad-touch alone, never at preset fires. Treat it
+        // as a drum start when it lands during/just after a beat-pad hold.
+        if characteristic.uuid.uuidString == "FF01", data.count == 5 {
+            let pkt = [UInt8](data)
+            if pkt == [0x02, 0xf0, 0x00, 0x00, 0x00] {
+                let flagActive = (lastStatusBytes?[1] ?? 0) & 0x10 != 0
+                let recentFlag = lastBeatFlagChangeAt.map { Date().timeIntervalSince($0) < 2.0 } ?? false
+                AppModel.shared.addLog("FF01 drum-start event 02f0000000\(flagActive || recentFlag ? "" : " — idle, ignored")")
+                if flagActive || recentFlag, !paddleStartThisHold {
+                    paddleStartThisHold = true
+                    guitarDrumsPlaying = true
+                    startBeatFromGuitar(guitarBpm: Int(lastStatusBytes?[7] ?? 0), reason: "drum-start event")
+                }
+            }
+        }
+
+        let key = characteristic.uuid.uuidString + ":" + rawHex
+        if key == lastRxKey {
+            lastRxRepeat += 1
+            return
+        }
+        if lastRxRepeat > 0 {
+            AppModel.shared.addLog("RX \(lastRxKey?.components(separatedBy: ":").first ?? "?") repeated ×\(lastRxRepeat)")
+            lastRxRepeat = 0
+        }
+        lastRxKey = key
         if rxLogCount >= rxLogCap {
             if rxLogCount == rxLogCap {
                 AppModel.shared.addLog("RX log cap reached (\(rxLogCap)) — further inbound data suppressed")
@@ -233,7 +529,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             return
         }
         rxLogCount += 1
-        let rawHex = data.map { String(format: "%02x", $0) }.joined()
         AppModel.shared.addLog("RX \(characteristic.uuid.uuidString) [\(data.count)b]: \(rawHex)")
         // Printable ASCII? (device info strings etc.)
         if data.allSatisfy({ (0x20...0x7e).contains($0) }) {
@@ -241,6 +536,55 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         } else {
             let decodedHex = data.map { String(format: "%02x", $0 ^ secretKey) }.joined()
             AppModel.shared.addLog("RX xor5A \(characteristic.uuid.uuidString): \(decodedHex)")
+        }
+    }
+
+    /// Start our beat from a guitar gesture. Tempo rule (builds 41+44): a
+    /// byte[7] that moved WITHIN the gesture window (<2s) is contamination from
+    /// the gesture's own pad presses (the beat pad doubles as tap-tempo —
+    /// 5:21's 130→51) → the banked song tempo wins and is reasserted on the C1
+    /// 0.3s later. A STABLE byte[7] that differs from the bank is a deliberate
+    /// tap-tempo Rich set before starting — honor it and bank it as truth.
+    private func startBeatFromGuitar(guitarBpm: Int, reason: String) {
+        let contaminated = lastTempoByteChangeAt.map { Date().timeIntervalSince($0) < 2.0 } ?? false
+        var target = guitarBpm
+        if MIDIHandler.hasSongTempo, contaminated, MIDIHandler.lastSentTempoBPM != guitarBpm {
+            target = MIDIHandler.lastSentTempoBPM
+            AppModel.shared.addLog("Guitar \(reason) — song tempo \(target) wins over guitar's tapped \(guitarBpm); reasserting")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                MIDIHandler.triggerTempo(bpm: target)
+            }
+        } else if MIDIHandler.lastSentTempoBPM != guitarBpm {
+            MIDIHandler.bankExternalTempo(bpm: guitarBpm)
+        }
+        if BeatPlayer.shared.isPlaying, BeatPlayer.shared.currentBPM == target {
+            // Same gesture at the same tempo while already playing = TRANSITION
+            // (Rich 15:39: the variation change is beat pad + paddle mid-song —
+            // wire-identical to a start). One-bar fill, bar-synced; the loop
+            // resumes right after it (Rich 16:27).
+            AppModel.shared.addLog("Guitar transition — one-bar fill")
+            BeatPlayer.shared.playTransitionFill()
+        } else {
+            AppModel.shared.addLog("Guitar \(reason) — DUUDU @ \(target) BPM")
+            BeatPlayer.shared.start(bpm: target)
+        }
+    }
+
+    /// Tap-tempo follow (build 44): the beat pad is Rich's tempo input — tapping
+    /// it retempos the guitar (byte[7]), and ours rides along. Debounced 1s:
+    /// tap-tempo values flutter per tap, preset fires flap the byte before
+    /// settling, and our own reassert echoes back in. No-ops when the settled
+    /// value is already our current BPM (covers echoes and flaps).
+    private func scheduleTempoFollow(candidate: Int) {
+        let markedAt = Date()
+        pendingTempoFollowAt = markedAt
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self, self.pendingTempoFollowAt == markedAt else { return }
+            guard BeatPlayer.shared.isPlaying else { return }
+            guard candidate != BeatPlayer.shared.currentBPM else { return }
+            AppModel.shared.addLog("Guitar tap-tempo — DUUDU follows @ \(candidate) BPM")
+            BeatPlayer.shared.start(bpm: candidate)
+            MIDIHandler.bankExternalTempo(bpm: candidate)
         }
     }
 
