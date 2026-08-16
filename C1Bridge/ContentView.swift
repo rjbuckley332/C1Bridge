@@ -18,25 +18,29 @@ struct ContentView: View {
                 .tabItem { Label("Song Setup", systemImage: "music.mic") }
                 .tag(0)
 
+            beatSetupView
+                .tabItem { Label("Beat", systemImage: "hand.tap") }
+                .tag(1)
+
             logView
                 .tabItem { Label("Activity", systemImage: "list.bullet.rectangle") }
-                .tag(1)
+                .tag(2)
 
             tempoReferenceView
                 .tabItem { Label("Tempo", systemImage: "metronome") }
-                .tag(2)
+                .tag(3)
 
             keyReferenceView
                 .tabItem { Label("Key", systemImage: "music.note.list") }
-                .tag(3)
+                .tag(4)
 
             instrumentReferenceView
                 .tabItem { Label("Instruments", systemImage: "guitars") }
-                .tag(4)
+                .tag(5)
 
             volumeReferenceView
                 .tabItem { Label("Volume", systemImage: "speaker.wave.3") }
-                .tag(5)
+                .tag(6)
         }
         .navigationTitle(ble.isConnected ? "C1: Connected" : "C1: Disconnected")
         .navigationBarTitleDisplayMode(.inline)
@@ -66,6 +70,11 @@ struct ContentView: View {
     // MARK: - Song Setup (voice-first builder)
     private var songSetupView: some View {
         SongSetupView()
+    }
+
+    // MARK: - Beat Setup (stage 2: fretboard-on-screen validation)
+    private var beatSetupView: some View {
+        BeatSetupView()
     }
 
     // MARK: - Activity Log

@@ -44,7 +44,7 @@ cat > "$BUILD_DIR/ExportOptions.plist" <<'PLIST'
 	<key>method</key>
 	<string>app-store-connect</string>
 	<key>destination</key>
-	<string>upload</string>
+	<string>export</string>
 	<key>teamID</key>
 	<string>XB8JG6VJUS</string>
 	<key>signingStyle</key>
@@ -55,7 +55,7 @@ cat > "$BUILD_DIR/ExportOptions.plist" <<'PLIST'
 </plist>
 PLIST
 
-echo "== Uploading to App Store Connect =="
+echo "== Exporting IPA locally =="
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
   -exportPath "$BUILD_DIR/export" \
@@ -64,5 +64,11 @@ xcodebuild -exportArchive \
   -authenticationKeyPath "$KEY_PATH" \
   -authenticationKeyID "$ASC_KEY_ID" \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+echo "== Uploading to App Store Connect (altool transport — the destination=upload path hangs on this host, 2026-08-14) =="
+xcrun altool --upload-app \
+  -f "$BUILD_DIR/export/C1Bridge.ipa" \
+  --apiKey "$ASC_KEY_ID" \
+  --apiIssuer "$ASC_ISSUER_ID"
 
 echo "== Uploaded. TestFlight processing usually takes 5-15 minutes; watch for the email. =="

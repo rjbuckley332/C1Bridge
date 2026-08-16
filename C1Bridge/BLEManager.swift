@@ -9,6 +9,21 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     @Published var isConnected: Bool = false
     @Published var connectedPeripheralName: String? = nil
 
+    /// FRETBOARD TELEMETRY (build 55, decoded from recon 2026-08-16): live
+    /// FF01 status bytes for the Beat Setup tab.
+    ///   byte[4]  = 7-bit fret-position mask — pos N = value 1<<N
+    ///              (pos1=0x02 … pos7=0x80; 0x00 = nothing pressed). Bits can
+    ///              combine if the C1 reports multiple positions at once.
+    ///   byte[5]  = paddle/velocity — 0x0c while the front paddle is held
+    ///              against a fret; 0x40 = mute pad / hard hit.
+    ///   byte[12] = note step — key-aware. Key C: pos1–7 read 0,2,4,5,7,9,11
+    ///              (C D E F G A B). 0xff = idle.
+    ///   byte[13] = note flag — 0/1 per position (meaning TBD). 0xff = idle.
+    @Published var fretMask: UInt8 = 0
+    @Published var paddleByte: UInt8 = 0
+    @Published var noteStepByte: UInt8 = 0xff
+    @Published var noteFlagByte: UInt8 = 0xff
+
     private var central: CBCentralManager!
     private var connectedPeripheral: CBPeripheral?
     private let serviceUUID = CBUUID(string: "00FF")
@@ -292,6 +307,13 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         // suspected beat-state/gesture byte we're hunting.
         if characteristic.uuid.uuidString == "FF01", data.count == 14 {
             let bytes = [UInt8](data)
+            // Publish fretboard telemetry on EVERY FF01 frame (guarded assigns
+            // make no-change frames free) so the Beat tab never misses state —
+            // including the baseline frame that returns early below.
+            if fretMask != bytes[4] { fretMask = bytes[4] }
+            if paddleByte != bytes[5] { paddleByte = bytes[5] }
+            if noteStepByte != bytes[12] { noteStepByte = bytes[12] }
+            if noteFlagByte != bytes[13] { noteFlagByte = bytes[13] }
             var masked = bytes
             masked[9] = 0; masked[10] = 0; masked[11] = 0
             let prevMask = lastStatusMask, prevBytes = lastStatusBytes
