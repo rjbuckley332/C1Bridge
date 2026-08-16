@@ -63,7 +63,11 @@ final class LooperEngine: ObservableObject {
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()        // rolling bar scheduler
-    private let oneShotPlayer = AVAudioPlayerNode() // instant tap feedback
+    /// Round-robin one-shot pool (4 nodes): up to 4 tails overlap, so a crash
+    /// keeps ringing over the next taps instead of being choked by them
+    /// (Rich 04:55 — real cymbals sustain unless touched).
+    private let oneShotPlayers: [AVAudioPlayerNode] = (0..<4).map { _ in AVAudioPlayerNode() }
+    private var oneShotNext = 0
     private var graphInstalled = false
     private let sampleRate = 44_100.0
 
@@ -129,7 +133,7 @@ final class LooperEngine: ObservableObject {
         schedTimer?.invalidate()
         schedTimer = nil
         player.stop()
-        oneShotPlayer.stop()
+        oneShotPlayers.forEach { $0.stop() }
         isRunning = false
         currentBar = -1
     }
@@ -226,7 +230,12 @@ final class LooperEngine: ObservableObject {
         if barIndex >= 1 {
             for hit in hits {
                 let voice = voiceForPosition[hit.position] ?? .kick
-                addVoice(voice, into: out, atFrame: hit.step * stepFrames, totalFrames: barFrames)
+                let at = hit.step * stepFrames
+                addVoice(voice, into: out, atFrame: at, totalFrames: barFrames)
+                // Ring across the bar line: the same hit one bar earlier leaves
+                // its tail at this bar's start — seamless loop sustain instead
+                // of the build-56 choke at the loop point (Rich 04:55).
+                addVoice(voice, into: out, atFrame: at - barFrames, totalFrames: barFrames)
             }
         }
         return buffer
@@ -236,18 +245,24 @@ final class LooperEngine: ObservableObject {
 
     private func playOneShot(_ voice: Voice) {
         DispatchQueue.main.async {
-            guard self.graphInstalled, self.engine.isRunning else { return }
+            // Frets sound even with the transport stopped — the Beat tab is a
+            // drum brain whenever it's open, not only while looping.
+            self.installGraphIfNeeded()
+            if !self.engine.isRunning { try? self.engine.start() }
+            guard self.engine.isRunning else { return }
             if self.oneShotCache[voice] == nil {
                 self.oneShotCache[voice] = self.renderOneShot(voice)
             }
             guard let buffer = self.oneShotCache[voice] else { return }
-            self.oneShotPlayer.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
-            if !self.oneShotPlayer.isPlaying { self.oneShotPlayer.play() }
+            let node = self.oneShotPlayers[self.oneShotNext]
+            self.oneShotNext = (self.oneShotNext + 1) % self.oneShotPlayers.count
+            node.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+            if !node.isPlaying { node.play() }
         }
     }
 
     private func renderOneShot(_ voice: Voice) -> AVAudioPCMBuffer? {
-        let durFrames = Int(1.0 * sampleRate)
+        let durFrames = Int(3.0 * sampleRate) // long enough for crash sustain
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(durFrames)),
               let data = buffer.floatChannelData else { return nil }
@@ -282,7 +297,7 @@ final class LooperEngine: ObservableObject {
             var s = sin(phase) * exp(-t * 16.0)
             if t < 0.004 { s += 0.4 * Double.random(in: -1...1) * (1.0 - t / 0.004) }
             let idx = start + i
-            if idx < totalFrames { out[idx] += Float(s * 0.9) }
+            if idx >= 0 && idx < totalFrames { out[idx] += Float(s * 0.9) }
         }
     }
 
@@ -298,23 +313,33 @@ final class LooperEngine: ObservableObject {
             let noise = (0.4 * raw + 0.6 * hp) * exp(-t * 22.0)
             let tone = sin(2.0 * .pi * 190.0 * t) * exp(-t * 45.0)
             let idx = start + i
-            if idx < totalFrames { out[idx] += Float((noise * 0.75 + tone * 0.45) * 0.7) }
+            if idx >= 0 && idx < totalFrames { out[idx] += Float((noise * 0.75 + tone * 0.45) * 0.7) }
         }
     }
 
-    /// Noise-only crash (BeatPlayer build 54: the 5.2kHz "ring" read piercing).
+    /// Crash cymbal: bright attack + long shimmering wash. Build 57: REAL
+    /// sustain (Rich 04:55 — "something about the cymbal is missing… sustain").
+    /// Two-stage decay over 2.5s (build 56's single exp(-t·4) choked it in
+    /// under a second); highs fade fastest, leaving a darker wash, like a real
+    /// crash. Still noise-only — no sine ring (build 54 lesson).
     private func addCrash(into out: UnsafeMutablePointer<Float>, atFrame start: Int, totalFrames: Int) {
         let sr = sampleRate
         var prev = 0.0
-        let dur = Int(0.9 * sr)
+        var lp = 0.0
+        let dur = Int(2.5 * sr)
         for i in 0..<dur {
             let t = Double(i) / sr
             let raw = Double.random(in: -1...1)
             let hp = raw - prev
             prev = raw
-            let noise = (0.45 * raw + 0.55 * hp) * exp(-t * 4.0)
+            lp += 0.10 * (raw - lp)
+            let sizzle = hp * exp(-t * 9.0)   // bright attack, fades fast
+            let wash = raw * exp(-t * 2.2)    // mid wash
+            let body = lp * exp(-t * 1.1)     // dark sustained body
             let idx = start + i
-            if idx < totalFrames { out[idx] += Float(noise * 0.75) }
+            if idx >= 0 && idx < totalFrames {
+                out[idx] += Float((0.50 * sizzle + 0.30 * wash + 0.30 * body) * 0.8)
+            }
         }
     }
 
@@ -328,7 +353,7 @@ final class LooperEngine: ObservableObject {
             phase += 2.0 * .pi * f / sr
             let s = sin(phase) * exp(-t * 12.0)
             let idx = start + i
-            if idx < totalFrames { out[idx] += Float(s * 0.65) }
+            if idx >= 0 && idx < totalFrames { out[idx] += Float(s * 0.65) }
         }
     }
 
@@ -343,7 +368,7 @@ final class LooperEngine: ObservableObject {
             let hp = raw - prev
             prev = raw
             let idx = start + i
-            if idx < totalFrames { out[idx] += Float(hp * exp(-t * 90.0) * 0.5) }
+            if idx >= 0 && idx < totalFrames { out[idx] += Float(hp * exp(-t * 90.0) * 0.5) }
         }
     }
 
@@ -360,7 +385,7 @@ final class LooperEngine: ObservableObject {
             let hp = raw - prev
             prev = raw
             let idx = start + i
-            if idx < totalFrames { out[idx] += Float((0.5 * raw + 0.5 * hp) * env * 0.55) }
+            if idx >= 0 && idx < totalFrames { out[idx] += Float((0.5 * raw + 0.5 * hp) * env * 0.55) }
         }
     }
 
@@ -373,7 +398,7 @@ final class LooperEngine: ObservableObject {
             let t = Double(i) / sr
             let s = sin(2.0 * .pi * freq * t) * exp(-t * 160.0)
             let idx = start + i
-            if idx < totalFrames { out[idx] += Float(s * (accent ? 0.5 : 0.35)) }
+            if idx >= 0 && idx < totalFrames { out[idx] += Float(s * (accent ? 0.5 : 0.35)) }
         }
     }
 
@@ -382,13 +407,13 @@ final class LooperEngine: ObservableObject {
     private func installGraphIfNeeded() {
         guard !graphInstalled else { return }
         engine.attach(player)
-        engine.attach(oneShotPlayer)
+        oneShotPlayers.forEach { engine.attach($0) }
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else {
             AppModel.shared.addLog("Looper: could not create audio format")
             return
         }
         engine.connect(player, to: engine.mainMixerNode, format: format)
-        engine.connect(oneShotPlayer, to: engine.mainMixerNode, format: format)
+        oneShotPlayers.forEach { engine.connect($0, to: engine.mainMixerNode, format: format) }
         engine.prepare()
         graphInstalled = true
     }
