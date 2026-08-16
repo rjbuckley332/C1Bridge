@@ -77,8 +77,15 @@ final class LooperEngine: ObservableObject {
     private let sampleRate = 44_100.0
 
     private var schedTimer: Timer?
-    private var anchorSampleTime: AVAudioFramePosition = 0  // grid start (audio clock)
+    /// Grid anchor on the HOST clock (build 60). Build 56-59 anchored off
+    /// player.lastRenderTime — but once one-shots could run the engine before
+    /// Start (build 57 drum-brain standby), the transport player had never
+    /// rendered at Start time, so the anchor was nil/stale and the scheduler
+    /// never got going (Rich 05:50: "pressed start and it did not play back").
+    /// Host time (mach_absolute_time) is always valid, engine state be damned.
+    private var anchorHostTime: UInt64 = 0
     private var anchorDate = Date()                          // grid start (wall clock)
+    private var barHostTicks: UInt64 = 0
     private var nextBarToSchedule = 0
     private var stepFrames = 0
     private var barFrames = 0
@@ -122,13 +129,10 @@ final class LooperEngine: ObservableObject {
                 return
             }
             self.player.play()
-            guard let renderNow = self.player.lastRenderTime else {
-                AppModel.shared.addLog("Looper: no render time")
-                return
-            }
-            let leadFrames = AVAudioFramePosition(0.15 * self.sampleRate)
-            self.anchorSampleTime = renderNow.sampleTime + leadFrames
-            self.anchorDate = Date().addingTimeInterval(0.15)
+            let lead = 0.2
+            self.anchorHostTime = mach_absolute_time() + Self.hostTicks(forSeconds: lead)
+            self.barHostTicks = Self.hostTicks(forSeconds: barDur)
+            self.anchorDate = Date().addingTimeInterval(lead)
             self.nextBarToSchedule = 0
             self.currentBar = 0
             self.currentStep = 0
@@ -266,14 +270,22 @@ final class LooperEngine: ObservableObject {
     // MARK: - Rolling bar scheduler
 
     private func pump() {
-        guard isRunning, let now = player.lastRenderTime else { return }
+        guard isRunning, barHostTicks > 0 else { return }
+        let now = mach_absolute_time()
+        // Skip-ahead flood guard: never schedule a bar whose start is (nearly)
+        // past — jump to the first future bar, grid alignment intact. A
+        // stalled pump (backgrounding, main-thread hiccup) must DROP overdue
+        // bars, not burst-schedule hundreds of them (the 05:50 failure mode).
+        let minLead = Self.hostTicks(forSeconds: 0.03)
+        while anchorHostTime &+ UInt64(nextBarToSchedule) &* barHostTicks < now &+ minLead {
+            nextBarToSchedule += 1
+        }
         // Keep ~0.4s of bars scheduled ahead; each render reads the LATEST hits.
-        let horizon = now.sampleTime + AVAudioFramePosition(0.4 * sampleRate)
-        while anchorSampleTime + AVAudioFramePosition(nextBarToSchedule * barFrames) < horizon {
+        let horizon = now &+ Self.hostTicks(forSeconds: 0.4)
+        while anchorHostTime &+ UInt64(nextBarToSchedule) &* barHostTicks < horizon {
             let bar = nextBarToSchedule
             if let buffer = renderBar(barIndex: bar) {
-                let at = AVAudioTime(sampleTime: anchorSampleTime + AVAudioFramePosition(bar * barFrames),
-                                     atRate: sampleRate)
+                let at = AVAudioTime(hostTime: anchorHostTime &+ UInt64(bar) &* barHostTicks)
                 player.scheduleBuffer(buffer, at: at, completionHandler: nil)
             }
             nextBarToSchedule += 1
@@ -316,6 +328,19 @@ final class LooperEngine: ObservableObject {
             }
         }
         return buffer
+    }
+
+    // MARK: - Host-time helpers (build 60)
+
+    private static let timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    /// seconds → mach host ticks. (ns = ticks · numer/denom, so ticks = s·1e9·denom/numer.)
+    static func hostTicks(forSeconds seconds: Double) -> UInt64 {
+        UInt64(seconds * 1e9 * Double(timebase.denom) / Double(timebase.numer))
     }
 
     // MARK: - One-shots (instant tap feedback)
