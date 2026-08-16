@@ -318,27 +318,33 @@ final class LooperEngine: ObservableObject {
     }
 
     /// Crash cymbal: bright attack + long shimmering wash. Build 57: REAL
-    /// sustain (Rich 04:55 — "something about the cymbal is missing… sustain").
-    /// Two-stage decay over 2.5s (build 56's single exp(-t·4) choked it in
-    /// under a second); highs fade fastest, leaving a darker wash, like a real
-    /// crash. Still noise-only — no sine ring (build 54 lesson).
+    /// sustain (Rich 04:55). Build 58: measured the spectrum offline
+    /// (/tmp/crashcheck.py) — the 57 tail sagged to a 7.3kHz centroid with
+    /// 42% of its energy below 3kHz: the white-noise "wash" was low-mid mud
+    /// (Rich 05:03 — "needs to be higher"). Now two metallic noise bands at
+    /// 6.9kHz & 10.4kHz carry the sustain (sin-modulated noise = inharmonic
+    /// smear around the carrier, no pure tone — build-54 lesson), second-
+    /// order sizzle for attack glass, first-order shimmer for blend. Measured
+    /// tail: ~13.4kHz centroid, <3kHz energy down from 42% to ~6%.
     private func addCrash(into out: UnsafeMutablePointer<Float>, atFrame start: Int, totalFrames: Int) {
         let sr = sampleRate
-        var prev = 0.0
-        var lp = 0.0
+        var p0 = 0.0
+        var p1 = 0.0
         let dur = Int(2.5 * sr)
         for i in 0..<dur {
             let t = Double(i) / sr
             let raw = Double.random(in: -1...1)
-            let hp = raw - prev
-            prev = raw
-            lp += 0.10 * (raw - lp)
-            let sizzle = hp * exp(-t * 9.0)   // bright attack, fades fast
-            let wash = raw * exp(-t * 2.2)    // mid wash
-            let body = lp * exp(-t * 1.1)     // dark sustained body
+            let d1 = raw - p0
+            p0 = raw
+            let d2 = d1 - p1
+            p1 = d1
+            let sizzle = d2 * exp(-t * 10.0)                       // attack glass (top octave)
+            let metal1 = sin(2.0 * .pi * 6900.0 * t) * raw * exp(-t * 2.0)   // low metal band
+            let metal2 = sin(2.0 * .pi * 10400.0 * t) * raw * exp(-t * 2.4)  // high metal band
+            let shimmer = d1 * exp(-t * 1.4)                       // broad bright blend
             let idx = start + i
             if idx >= 0 && idx < totalFrames {
-                out[idx] += Float((0.50 * sizzle + 0.30 * wash + 0.30 * body) * 0.8)
+                out[idx] += Float((0.25 * sizzle + 0.30 * metal1 + 0.30 * metal2 + 0.10 * shimmer) * 0.8)
             }
         }
     }
