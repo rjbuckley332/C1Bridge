@@ -36,7 +36,18 @@ final class LooperEngine: ObservableObject {
         }
     }
 
-    struct Hit: Equatable { var position: Int; var step: Int; var pass: Int }
+    /// A recorded drum hit. `sampleID` non-nil = play the captured mic clip
+    /// (mic-as-instrument, build 65) instead of the position's synth voice.
+    /// Equatable ignores sampleID so the dedupe check keeps working.
+    struct Hit: Equatable {
+        var position: Int
+        var step: Int
+        var pass: Int
+        var sampleID: UUID? = nil
+        static func == (l: Hit, r: Hit) -> Bool {
+            l.position == r.position && l.step == r.step && l.pass == r.pass
+        }
+    }
 
     static let stepsPerBar = 16
 
@@ -101,6 +112,9 @@ final class LooperEngine: ObservableObject {
     private var stepBoundaries = [Int](repeating: 0, count: 17)
     private var lastMask: UInt8 = 0
     private var oneShotCache: [Voice: AVAudioPCMBuffer] = [:]
+    /// Captured mic clips in memory: sampleID → 44.1kHz mono Float frames,
+    /// attack-trimmed and peak-normalized to 0.8.
+    private var sampleBuffers: [UUID: [Float]] = [:]
     /// Bars of click-only count-in before recording arms. 1 when building a
     /// loop from empty; 0 for replays (hits exist — Start jumps straight into
     /// the groove, Rich 05:18 "how do I play it back") and for perform mode.
@@ -208,8 +222,20 @@ final class LooperEngine: ObservableObject {
     /// (universal tempo rule).
     func snapshot(name: String) -> SavedBeat {
         SavedBeat(name: name, bpm: bpm,
-                  hits: hits.map { SavedHit(position: $0.position, step: $0.step) },
+                  hits: hits.map { SavedHit(position: $0.position, step: $0.step,
+                                            sampleFile: $0.sampleID.map { "\($0.uuidString).f32" }) },
                   voices: voiceForPosition)
+    }
+
+    /// Raw float32 payloads for every sample referenced by current hits —
+    /// BeatLibrary writes these next to the beat on save.
+    func samplePayloads() -> [String: Data] {
+        var out: [String: Data] = [:]
+        for hit in hits {
+            guard let sid = hit.sampleID, let frames = sampleBuffers[sid] else { continue }
+            out["\(sid.uuidString).f32"] = frames.withUnsafeBufferPointer { Data(buffer: $0) }
+        }
+        return out
     }
 
     /// Load a saved beat into Test mode, replacing the current loop. Leaves
@@ -220,7 +246,11 @@ final class LooperEngine: ObservableObject {
         performingName = nil
         bpm = beat.bpm
         voiceForPosition = beat.voices
-        hits = beat.hits.map { Hit(position: $0.position, step: $0.step, pass: 1) }
+        sampleBuffers = BeatLibrary.shared.loadSamples(for: beat)
+        hits = beat.hits.map { sh in
+            Hit(position: sh.position, step: sh.step, pass: 1,
+                sampleID: sh.sampleFile.flatMap { UUID(uuidString: String($0.dropLast(4))) })
+        }
         AppModel.shared.addLog("Beat \"\(beat.name)\" loaded — \(beat.hits.count) hit(s) @ \(beat.bpm) BPM")
     }
 
@@ -297,14 +327,14 @@ final class LooperEngine: ObservableObject {
     /// Quantize a tap/onset onto the grid and record it. correctedDate must
     /// already carry the source's latency correction (output for pads/frets,
     /// input for mic).
-    private func recordQuantized(position: Int, correctedDate: Date) {
+    private func recordQuantized(position: Int, correctedDate: Date, sampleID: UUID? = nil) {
         let elapsed = correctedDate.timeIntervalSince(anchorDate)
         guard elapsed >= 0 else { return }
         let barDur = Double(barFrames) / sampleRate
         let pass = Int(elapsed / barDur)
         let phase = elapsed.truncatingRemainder(dividingBy: barDur)
         let step = Int((phase / barDur) * Double(Self.stepsPerBar) + 0.5) % Self.stepsPerBar
-        let hit = Hit(position: position, step: step, pass: pass)
+        let hit = Hit(position: position, step: step, pass: pass, sampleID: sampleID)
         if !hits.contains(hit) { hits.append(hit) }
     }
 
@@ -313,14 +343,14 @@ final class LooperEngine: ObservableObject {
     /// heard time, so the one-shot he just heard sits exactly on the loop's
     /// downbeat phase; the hit records at step 0 and first repeats one bar
     /// later. No count-in — the tap itself is the count.
-    private func autoStart(firstPosition: Int, heardLead: Double) {
+    private func autoStart(firstPosition: Int, heardLead: Double, recordFirstHit: Bool = true) {
         stopTransport()
         isPerforming = false
         performingName = nil
         countInBars = 0
         BeatPlayer.shared.stop()   // one drummer at a time
         beginTransport(bpmOverride: nil, anchorLead: heardLead)
-        hits.append(Hit(position: firstPosition, step: 0, pass: 0))
+        if recordFirstHit { hits.append(Hit(position: firstPosition, step: 0, pass: 0)) }
         AppModel.shared.addLog("Looper auto-start @ \(bpm) BPM — first tap = beat 1")
     }
 
@@ -344,6 +374,15 @@ final class LooperEngine: ObservableObject {
     /// latency + tap buffer + detecting at buffer end. Subtracted so the grid
     /// aligns with the clap he HEARD, not the buffer we happened to finish.
     private let micDetectionDelay = 0.025
+    /// Tap-native sample rate (48k on modern iPhones) — clips get resampled
+    /// to the render rate at finalize.
+    private var tapRate = 48_000.0
+    // Clip-capture state (render-thread owned; only finalized on main):
+    private var preroll = [Float]()          // rolling ~85ms ring so attacks never clip
+    private var capturing = false
+    private var clip = [Float]()
+    private var clipOnsetAt = Date.distantPast
+    private var quietRun = 0
 
     func startMicCapture() {
         DispatchQueue.main.async {
@@ -367,16 +406,22 @@ final class LooperEngine: ObservableObject {
                 input.removeTap(onBus: 0)
                 return
             }
+            self.tapRate = input.outputFormat(forBus: 0).sampleRate
             self.engine.mainMixerNode.outputVolume = 0   // speaker silent while the mic lives
             self.micAmbient = 0.001
+            self.preroll = []
+            self.capturing = false
+            self.clip = []
             self.micCapturing = true
-            AppModel.shared.addLog("Mic capture ON (pos \(self.micArmedPosition)) — speaker muted; clap your layer")
+            AppModel.shared.addLog("Mic capture ON (pos \(self.micArmedPosition)) — speaker muted; your sounds become the beat")
         }
     }
 
     func stopMicCapture() {
         DispatchQueue.main.async {
             guard self.micCapturing else { return }
+            self.capturing = false   // discard any in-flight clip
+            self.clip = []
             self.micEngine.inputNode.removeTap(onBus: 0)
             self.micEngine.stop()
             self.engine.mainMixerNode.outputVolume = 1
@@ -389,36 +434,119 @@ final class LooperEngine: ObservableObject {
     /// Onset detection on the render thread: peak over ambient floor ×6 (or an
     /// absolute floor), with a 90ms refractory so one clap can't double-fire.
     /// The ambient floor tracks room tone slowly from quiet buffers.
+    /// Render-thread: onset detection + clip capture. Onsets START a clip
+    /// (with pre-roll so the attack is never clipped) and CLOSE on decay
+    /// (~90ms quiet), on the 1.5s cap, or when a NEW onset arrives (his rapid
+    /// "ptiti ptiti" case). Completed clips finalize on the main thread.
     private func processMicBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let ch = buffer.floatChannelData?[0] else { return }
         let n = Int(buffer.frameLength)
         var peak: Float = 0
-        var i = 0
-        while i < n {
-            let a = abs(ch[i])
+        var frames = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let v = ch[i]
+            frames[i] = v
+            let a = abs(v)
             if a > peak { peak = a }
-            i += 4
         }
         let now = Date()
+
         if peak > max(micAmbient * 6, 0.02), now > micRefractoryUntil {
             micRefractoryUntil = now.addingTimeInterval(0.09)
+            if capturing { endClip() }            // new onset closes the last clip
+            capturing = true
+            clip = preroll
+            clipOnsetAt = now
+            quietRun = 0
             DispatchQueue.main.async { self.micOnset(at: now) }
+        }
+
+        // keep the rolling pre-roll ring fresh
+        preroll.append(contentsOf: frames)
+        let maxPre = Int(0.085 * tapRate)
+        if preroll.count > maxPre { preroll.removeFirst(preroll.count - maxPre) }
+
+        if capturing {
+            clip.append(contentsOf: frames)
+            if peak < max(micAmbient * 2.5, 0.008) {
+                quietRun += n
+            } else {
+                quietRun = 0
+            }
+            if quietRun >= Int(0.09 * tapRate) || clip.count >= Int(1.5 * tapRate) {
+                endClip()
+            }
         } else if peak < micAmbient * 2 {
             micAmbient = micAmbient * 0.98 + peak * 0.02
         }
+    }
+
+    /// Hand a completed clip to the main thread (render-thread locals only).
+    private func endClip() {
+        capturing = false
+        let done = clip
+        let onset = clipOnsetAt
+        clip = []
+        DispatchQueue.main.async { self.finalizeClip(done, onsetDate: onset) }
+    }
+
+    /// Main-thread: trim to the attack, fade the tail, normalize to 0.8 peak,
+    /// resample to the render rate, store, and place on the grid.
+    private func finalizeClip(_ frames: [Float], onsetDate: Date) {
+        guard frames.count > Int(0.06 * tapRate) else { return }  // drop blips
+        let peak = frames.reduce(0) { max($0, abs($1)) }
+        guard peak > 0.005 else { return }
+        // attack trim: start ~8ms before the rise so the clip's frame 0 IS
+        // the attack — playback lands exactly on the grid step.
+        let riseThresh = peak * 0.08
+        var startIdx = 0
+        for i in 0..<frames.count where abs(frames[i]) >= riseThresh { startIdx = i; break }
+        startIdx = max(0, startIdx - Int(0.008 * tapRate))
+        var body = Array(frames[startIdx...])
+        // tail trim + tiny fade so the clip never clicks at its end
+        let tailThresh = peak * 0.06
+        var endIdx = body.count - 1
+        while endIdx > 0, abs(body[endIdx]) < tailThresh { endIdx -= 1 }
+        endIdx = min(body.count - 1, endIdx + Int(0.03 * tapRate))
+        body = Array(body[...endIdx])
+        let fade = Int(0.012 * tapRate)
+        if body.count > fade {
+            for i in 0..<fade { body[body.count - 1 - i] *= Float(i) / Float(fade) }
+        }
+        // normalize
+        let g = 0.8 / peak
+        var scaled = body.map { $0 * g }
+        // resample tap-rate → render rate (linear — fine for percussion)
+        if tapRate != sampleRate {
+            let ratio = tapRate / sampleRate
+            let outCount = Int(Double(scaled.count) / ratio)
+            var res = [Float](repeating: 0, count: outCount)
+            for i in 0..<outCount {
+                let pos = Double(i) * ratio
+                let i0 = min(Int(pos), scaled.count - 1)
+                let frac = Float(pos - Double(i0))
+                let a = scaled[i0]
+                let b = scaled[min(i0 + 1, scaled.count - 1)]
+                res[i] = a + (b - a) * frac
+            }
+            scaled = res
+        }
+        let sid = UUID()
+        sampleBuffers[sid] = scaled
+        recordQuantized(position: micArmedPosition,
+                        correctedDate: onsetDate.addingTimeInterval(-micDetectionDelay),
+                        sampleID: sid)
+        AppModel.shared.addLog("Mic clip \(String(format: "%.2f", Double(scaled.count) / sampleRate))s → pos \(micArmedPosition)")
     }
 
     private func micOnset(at date: Date) {
         guard micCapturing else { return }
         micOnsetCount += 1
         if !isRunning {
-            // First onset silently auto-starts the loop — the clap IS beat 1.
-            autoStart(firstPosition: micArmedPosition, heardLead: -micDetectionDelay)
-        } else {
-            recordQuantized(position: micArmedPosition,
-                            correctedDate: date.addingTimeInterval(-micDetectionDelay))
+            // First onset silently auto-starts the loop — the sound IS beat 1.
+            // Its hit lands when the clip finalizes (with its sampleID).
+            autoStart(firstPosition: micArmedPosition, heardLead: -micDetectionDelay, recordFirstHit: false)
         }
-        AppModel.shared.addLog("Mic onset → pos \(micArmedPosition)")
     }
 
     // MARK: - Rolling bar scheduler
@@ -472,13 +600,20 @@ final class LooperEngine: ObservableObject {
         }
         if barIndex >= countInBars {
             for hit in hits {
-                let voice = voiceForPosition[hit.position] ?? .kick
                 let at = stepBoundaries[hit.step]
-                addVoice(voice, into: out, atFrame: at, totalFrames: barFrames)
-                // Ring across the bar line: the same hit one bar earlier leaves
-                // its tail at this bar's start — seamless loop sustain instead
-                // of the build-56 choke at the loop point (Rich 04:55).
-                addVoice(voice, into: out, atFrame: at - barFrames, totalFrames: barFrames)
+                if let sid = hit.sampleID, let clipFrames = sampleBuffers[sid] {
+                    // Captured mic sound — plays as ITSELF at the grid step
+                    // (build 65: "whatever sound I make becomes the beat").
+                    addSample(clipFrames, into: out, atFrame: at, totalFrames: barFrames)
+                    addSample(clipFrames, into: out, atFrame: at - barFrames, totalFrames: barFrames)
+                } else {
+                    let voice = voiceForPosition[hit.position] ?? .kick
+                    addVoice(voice, into: out, atFrame: at, totalFrames: barFrames)
+                    // Ring across the bar line: the same hit one bar earlier leaves
+                    // its tail at this bar's start — seamless loop sustain instead
+                    // of the build-56 choke at the loop point (Rich 04:55).
+                    addVoice(voice, into: out, atFrame: at - barFrames, totalFrames: barFrames)
+                }
             }
         }
         return buffer
@@ -648,6 +783,16 @@ final class LooperEngine: ObservableObject {
             prev = raw
             let idx = start + i
             if idx >= 0 && idx < totalFrames { out[idx] += Float((0.5 * raw + 0.5 * hp) * env * 0.55) }
+        }
+    }
+
+    /// Write a captured clip additively at `start` (negative allowed — the
+    /// lookback wrap), bounds-guarded like the synth voices.
+    private func addSample(_ frames: [Float], into out: UnsafeMutablePointer<Float>, atFrame start: Int, totalFrames: Int) {
+        for i in 0..<frames.count {
+            let idx = start + i
+            if idx >= totalFrames { break }
+            if idx >= 0 { out[idx] += frames[i] }
         }
     }
 

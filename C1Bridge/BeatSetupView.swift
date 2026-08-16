@@ -265,7 +265,7 @@ struct BeatSetupView: View {
                         .background(Color.purple.opacity(0.12)).cornerRadius(6)
                 }
 
-                Text(looper.micCapturing ? "speaker muted — clap to the sweep" : "one layer per capture; speaker mutes while the mic listens")
+                Text(looper.micCapturing ? "speaker muted — your sounds become the beat" : "one layer per capture; your recorded sounds play back")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -327,7 +327,7 @@ struct BeatSetupView: View {
             Button("Save") {
                 let name = beatNameInput.trimmingCharacters(in: .whitespaces)
                 guard !name.isEmpty else { return }
-                beatLibrary.add(looper.snapshot(name: name))
+                beatLibrary.add(looper.snapshot(name: name), samplePayloads: looper.samplePayloads())
             }
             Button("Cancel", role: .cancel) {}
         } message: {

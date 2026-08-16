@@ -4,6 +4,9 @@ import Foundation
 struct SavedHit: Codable, Hashable {
     var position: Int   // fret position 1-7
     var step: Int       // 16th-note step 0-15
+    /// "<sampleID>.f32" inside the beat's sample dir when this hit plays a
+    /// captured mic sound (build 65); nil = synthesized position voice.
+    var sampleFile: String? = nil
 }
 
 /// A saved looper beat (Rich 03:55: "once the loop/beat sounds right, we save
@@ -35,23 +38,60 @@ final class BeatLibrary: ObservableObject {
     private init() { load() }
 
     /// Upsert by name (case-insensitive) — mirrors PresetStore.add.
-    func add(_ beat: SavedBeat) {
+    /// samplePayloads (filename → raw float32 data) are written into the
+    /// beat's sample dir; re-saving wipes and rewrites it.
+    func add(_ beat: SavedBeat, samplePayloads: [String: Data] = [:]) {
+        let finalID: UUID
         if let idx = beats.firstIndex(where: { $0.name.lowercased() == beat.name.lowercased() }) {
             var updated = beat
             updated.id = beats[idx].id
             updated.createdAt = beats[idx].createdAt
             beats[idx] = updated
+            finalID = updated.id
         } else {
             beats.append(beat)
+            finalID = beat.id
         }
         save()
-        AppModel.shared.addLog("Beat \"\(beat.name)\" saved — \(beat.hits.count) hit(s) @ \(beat.bpm) BPM")
+        let dir = samplesDir(for: finalID)
+        try? FileManager.default.removeItem(at: dir)
+        if !samplePayloads.isEmpty {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            for (name, data) in samplePayloads {
+                try? data.write(to: dir.appendingPathComponent(name), options: .atomic)
+            }
+        }
+        let clipNote = samplePayloads.isEmpty ? "" : ", \(samplePayloads.count) sound clip(s)"
+        AppModel.shared.addLog("Beat \"\(beat.name)\" saved — \(beat.hits.count) hit(s) @ \(beat.bpm) BPM\(clipNote)")
     }
 
     func delete(_ beat: SavedBeat) {
         beats.removeAll { $0.id == beat.id }
         save()
+        try? FileManager.default.removeItem(at: samplesDir(for: beat.id))
         AppModel.shared.addLog("Beat \"\(beat.name)\" deleted")
+    }
+
+    // MARK: - Sample storage (build 65 — mic-as-instrument)
+
+    /// Pure path computation — no actor state, safe to call from anywhere.
+    nonisolated private func samplesDir(for id: UUID) -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("BeatSamples").appendingPathComponent(id.uuidString)
+    }
+
+    /// Load every sample referenced by the beat's hits: sampleID → frames.
+    /// Pure file I/O — nonisolated so LooperEngine.load can call it.
+    nonisolated func loadSamples(for beat: SavedBeat) -> [UUID: [Float]] {
+        var out: [UUID: [Float]] = [:]
+        let dir = samplesDir(for: beat.id)
+        for hit in beat.hits {
+            guard let file = hit.sampleFile,
+                  let sid = UUID(uuidString: String(file.dropLast(4))),
+                  let data = try? Data(contentsOf: dir.appendingPathComponent(file)) else { continue }
+            out[sid] = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        }
+        return out
     }
 
     func beat(named name: String) -> SavedBeat? {
