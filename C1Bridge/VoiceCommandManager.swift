@@ -1043,10 +1043,19 @@ final class VoiceCommandManager: ObservableObject {
         if on {
             let bpm = tempoBPM ?? MIDIHandler.lastSentTempoBPM
             if let t = tempoBPM { MIDIHandler.triggerTempo(bpm: t) }
-            BeatPlayer.shared.start(bpm: bpm)
-            statusLine = "Beat on — DUUDU @ \(bpm) BPM."
+            // Custom loop from the Beat style picker performs; otherwise the
+            // built-in pattern plays (Rich 06:01: picker said his beat but
+            // this preview still started DUUDU).
+            if let cb = customBeatName, let saved = BeatLibrary.shared.beat(named: cb) {
+                LooperEngine.shared.perform(saved, bpm: bpm)
+                statusLine = "Beat on — \"\(cb)\" @ \(bpm) BPM."
+            } else {
+                BeatPlayer.shared.start(bpm: bpm)
+                statusLine = "Beat on — DUUDU @ \(bpm) BPM."
+            }
         } else {
             BeatPlayer.shared.stop()
+            LooperEngine.shared.stop()
             statusLine = "Beat off."
         }
         haptic()

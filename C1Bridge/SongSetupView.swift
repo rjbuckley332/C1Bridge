@@ -11,6 +11,7 @@ struct SongSetupView: View {
     @ObservedObject private var suggested = SuggestedTempoStore.shared
     @ObservedObject private var beat = BeatPlayer.shared
     @ObservedObject private var beatLibrary = BeatLibrary.shared
+    @ObservedObject private var looper = LooperEngine.shared
     @State private var searchText = ""
     @State private var presetName = ""
     @FocusState private var nameFieldFocused: Bool
@@ -209,12 +210,12 @@ struct SongSetupView: View {
             HStack {
                 Text("Beat")
                 Spacer()
-                Text(beat.isPlaying ? "DUUDU @ \(beat.currentBPM)" : (voice.tempoBPM.map { "starts @ \($0)" } ?? "rides last tempo sent"))
+                Text(beatRowStatus)
                     .font(.caption)
-                    .foregroundStyle(beat.isPlaying ? .blue : .secondary)
-                Button(beat.isPlaying ? "Stop" : "Start") { voice.setBeat(!beat.isPlaying) }
+                    .foregroundStyle(beatRowActive ? .blue : .secondary)
+                Button(beatRowActive ? "Stop" : "Start") { voice.setBeat(!beatRowActive) }
                     .buttonStyle(.borderedProminent)
-                    .tint(beat.isPlaying ? .red : .green)
+                    .tint(beatRowActive ? .red : .green)
             }
 
             Toggle("Include beat in recipe", isOn: $voice.beatInRecipe)
@@ -266,6 +267,16 @@ struct SongSetupView: View {
         } footer: {
             Text("Beat starts at the tempo field (also sent to the C1), or the last tempo sent if the field is empty. A playing beat follows every tempo change live. With 'Include beat' on, the saved song starts the selected beat automatically when OnSong loads it — a 'My beats' loop performs at the song's tempo.")
         }
+    }
+
+    /// Beat row: DUUDU playing, a custom loop performing, or stopped (showing
+    /// what a Start would play — the picker's selection).
+    private var beatRowActive: Bool { beat.isPlaying || looper.isPerforming }
+    private var beatRowStatus: String {
+        if looper.isPerforming { return "♪ " + (looper.performingName ?? "beat") + " @ \(looper.bpm)" }
+        if beat.isPlaying { return "DUUDU @ \(beat.currentBPM)" }
+        if let cb = voice.customBeatName { return "♪ \(cb)" + (voice.tempoBPM.map { " — starts @ \($0)" } ?? "") }
+        return voice.tempoBPM.map { "starts @ \($0)" } ?? "rides last tempo sent"
     }
 
     private var tempoBinding: Binding<Int> {
