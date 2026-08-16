@@ -125,7 +125,13 @@ final class LooperEngine: ObservableObject {
     }
 
     /// Transport core shared by start() (test mode) and perform() (stage 4).
-    private func beginTransport(bpmOverride: Int?) {
+    /// Transport core shared by start() (test mode), perform() (stage 4), and
+    /// autoStart() (loop-pedal mode). anchorLead is seconds from NOW to grid
+    /// start: positive (+0.2 default) gives the scheduler lead time; NEGATIVE
+    /// (auto-start) anchors the grid at the tap's heard moment, in the past —
+    /// the skip-ahead guard drops overdue bars, so the first recorded hit
+    /// sounds exactly one bar after the tap that started the loop.
+    private func beginTransport(bpmOverride: Int?, anchorLead: Double = 0.2) {
             self.installGraphIfNeeded()
             let bpm = max(50, min(200, bpmOverride ?? self.bpm))
             self.bpm = bpm
@@ -139,10 +145,13 @@ final class LooperEngine: ObservableObject {
                 return
             }
             self.player.play()
-            let lead = 0.2
-            self.anchorHostTime = mach_absolute_time() + Self.hostTicks(forSeconds: lead)
+            if anchorLead >= 0 {
+                self.anchorHostTime = mach_absolute_time() &+ Self.hostTicks(forSeconds: anchorLead)
+            } else {
+                self.anchorHostTime = mach_absolute_time() &- Self.hostTicks(forSeconds: -anchorLead)
+            }
             self.barHostTicks = Self.hostTicks(forSeconds: Double(self.barFrames) / self.sampleRate)
-            self.anchorDate = Date().addingTimeInterval(lead)
+            self.anchorDate = Date().addingTimeInterval(anchorLead)
             self.nextBarToSchedule = 0
             self.currentBar = 0
             self.currentStep = 0
@@ -259,9 +268,23 @@ final class LooperEngine: ObservableObject {
         }
     }
 
-    private func tap(position: Int) {
+    /// A drum tap from any source — guitar fret edge OR the on-screen pads
+    /// (Rich 08:06: "let the fret buttons on the app tap the beat… people can
+    /// help me create a beat without the guitar"). Screen taps skip the BLE
+    /// hop, so they're the tightest input. Perform mode mutes ALL tap input
+    /// (frets are chord shapes; the screen is stowed).
+    func tap(position: Int) {
+        guard !isPerforming else { return }
         let voice = voiceForPosition[position] ?? .kick
         playOneShot(voice)
+        // Loop-pedal auto-start (Rich 08:06 "go for both"): with the
+        // transport stopped, the first tap STARTS the loop and defines
+        // beat 1 — no Start button, no count-in. The hit records at step 0
+        // and first sounds one bar later, on the grid the tap established.
+        guard isRunning else {
+            autoStart(firstPosition: position)
+            return
+        }
         guard recordingArmed else { return }
         // Correct for output latency: he taps along with the click he HEARS,
         // which left the DAC outputLatency seconds ago (big on Bluetooth).
@@ -275,6 +298,23 @@ final class LooperEngine: ObservableObject {
         let step = Int((phase / barDur) * Double(Self.stepsPerBar) + 0.5) % Self.stepsPerBar
         let hit = Hit(position: position, step: step, pass: pass)
         if !hits.contains(hit) { hits.append(hit) }
+    }
+
+    /// Loop-pedal auto-start (Rich 08:06): the first tap with a stopped
+    /// transport STARTS the loop and IS beat 1. The grid anchors to the tap's
+    /// heard time, so the one-shot he just heard sits exactly on the loop's
+    /// downbeat phase; the hit records at step 0 and first repeats one bar
+    /// later. No count-in — the tap itself is the count.
+    private func autoStart(firstPosition: Int) {
+        let latency = AVAudioSession.sharedInstance().outputLatency
+        stopTransport()
+        isPerforming = false
+        performingName = nil
+        countInBars = 0
+        BeatPlayer.shared.stop()   // one drummer at a time
+        beginTransport(bpmOverride: nil, anchorLead: -latency)
+        hits.append(Hit(position: firstPosition, step: 0, pass: 0))
+        AppModel.shared.addLog("Looper auto-start @ \(bpm) BPM — first tap = beat 1")
     }
 
     // MARK: - Rolling bar scheduler

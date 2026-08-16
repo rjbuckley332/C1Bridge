@@ -18,6 +18,7 @@ struct BeatSetupView: View {
     @ObservedObject private var beatLibrary = BeatLibrary.shared
     @State private var showSaveAlert = false
     @State private var beatNameInput = ""
+    @State private var flashPositions = Set<Int>()
 
     private static let pitchNames = ["C", "C#", "D", "D#", "E", "F",
                                      "F#", "G", "G#", "A", "A#", "B"]
@@ -75,30 +76,45 @@ struct BeatSetupView: View {
 
     private var fretboardSection: some View {
         VStack(spacing: 10) {
-            Text("FRET POSITIONS")
+            Text("FRET POSITIONS — TAP TO PLAY")
                 .font(.caption).fontWeight(.bold)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 7) {
                 ForEach(1...7, id: \.self) { pos in
-                    VStack(spacing: 6) {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(isPressed(pos) ? Color.green : Color(.secondarySystemBackground))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(isPressed(pos) ? Color.green.opacity(0.9) : Color.gray.opacity(0.25),
-                                            lineWidth: isPressed(pos) ? 2 : 1)
-                            )
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 80)
-                        Text("\(pos)")
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(isPressed(pos) ? Color.green : Color.secondary)
+                    Button {
+                        flashPositions.insert(pos)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                            flashPositions.remove(pos)
+                        }
+                        looper.tap(position: pos)
+                    } label: {
+                        VStack(spacing: 6) {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(padLit(pos) ? Color.green : Color(.secondarySystemBackground))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(padLit(pos) ? Color.green.opacity(0.9) : Color.gray.opacity(0.25),
+                                                lineWidth: padLit(pos) ? 2 : 1)
+                                )
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 80)
+                            Text("\(pos)")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(padLit(pos) ? Color.green : Color.secondary)
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .animation(.easeOut(duration: 0.06), value: ble.fretMask)
         }
+    }
+
+    /// Pad lights for EITHER input: the C1's live fret mask, or a brief flash
+    /// on screen taps (the tap itself always sounds its voice instantly).
+    private func padLit(_ pos: Int) -> Bool {
+        isPressed(pos) || flashPositions.contains(pos)
     }
 
     // MARK: - Telemetry readouts (stage 2 validation)
@@ -344,8 +360,9 @@ struct BeatSetupView: View {
     private var statusText: String {
         if looper.isPerforming { return "Performing \"\(looper.performingName ?? "")\" — frets muted" }
         if !looper.isRunning {
-            return looper.hits.isEmpty ? "Stopped — press Start, tap frets on the click"
-                                       : "Stopped — \(looper.hits.count) hit(s) in loop"
+            return looper.hits.isEmpty
+                ? "Stopped — tap a pad or a fret to start the loop (first tap = beat 1)"
+                : "Stopped — \(looper.hits.count) hit(s) kept; tap to restart on your downbeat"
         }
         if looper.currentBar < looper.countInBars { return "Count-in…" }
         return "Bar \(looper.currentBar + 1 - looper.countInBars) — recording • \(looper.hits.count) hit(s)"
