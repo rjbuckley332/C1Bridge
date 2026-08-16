@@ -87,8 +87,18 @@ final class LooperEngine: ObservableObject {
     private var anchorDate = Date()                          // grid start (wall clock)
     private var barHostTicks: UInt64 = 0
     private var nextBarToSchedule = 0
-    private var stepFrames = 0
+    /// Exact bar length in frames, computed FIRST; barHostTicks is derived
+    /// FROM IT, so buffer length == scheduled interval and bars tile
+    /// seamlessly (build 62). Builds 56-61 truncated stepFrames and computed
+    /// barHostTicks from the float barDur independently — the two disagreed
+    /// by up to ~9 samples every bar (e.g. 130 BPM: buffer too LONG → each
+    /// loop point truncated the previous bar's tail; 120 BPM: too short →
+    /// silence sliver). Rich 06:08: "transition is not smooth… pad out the
+    /// timing" — right diagnosis family; the fix is exact tiling, not padding.
     private var barFrames = 0
+    /// Step boundaries in frames (17 entries; [16] = barFrames). Integer
+    /// division jitters individual steps by <1 sample — inaudible.
+    private var stepBoundaries = [Int](repeating: 0, count: 17)
     private var lastMask: UInt8 = 0
     private var oneShotCache: [Voice: AVAudioPCMBuffer] = [:]
     /// Bars of click-only count-in before recording arms. 1 when building a
@@ -120,8 +130,8 @@ final class LooperEngine: ObservableObject {
             let bpm = max(50, min(200, bpmOverride ?? self.bpm))
             self.bpm = bpm
             let barDur = 4.0 * 60.0 / Double(bpm)
-            self.stepFrames = Int((barDur / Double(Self.stepsPerBar)) * self.sampleRate)
-            self.barFrames = self.stepFrames * Self.stepsPerBar
+            self.barFrames = Int((barDur * self.sampleRate).rounded())
+            for s in 0...Self.stepsPerBar { self.stepBoundaries[s] = s * self.barFrames / Self.stepsPerBar }
             do {
                 if !self.engine.isRunning { try self.engine.start() }
             } catch {
@@ -131,7 +141,7 @@ final class LooperEngine: ObservableObject {
             self.player.play()
             let lead = 0.2
             self.anchorHostTime = mach_absolute_time() + Self.hostTicks(forSeconds: lead)
-            self.barHostTicks = Self.hostTicks(forSeconds: barDur)
+            self.barHostTicks = Self.hostTicks(forSeconds: Double(self.barFrames) / self.sampleRate)
             self.anchorDate = Date().addingTimeInterval(lead)
             self.nextBarToSchedule = 0
             self.currentBar = 0
@@ -313,13 +323,13 @@ final class LooperEngine: ObservableObject {
 
         if clickOn && !isPerforming {
             for beat in 0..<4 {
-                addClick(into: out, atFrame: beat * 4 * stepFrames, accent: beat == 0, totalFrames: barFrames)
+                addClick(into: out, atFrame: stepBoundaries[beat * 4], accent: beat == 0, totalFrames: barFrames)
             }
         }
         if barIndex >= countInBars {
             for hit in hits {
                 let voice = voiceForPosition[hit.position] ?? .kick
-                let at = hit.step * stepFrames
+                let at = stepBoundaries[hit.step]
                 addVoice(voice, into: out, atFrame: at, totalFrames: barFrames)
                 // Ring across the bar line: the same hit one bar earlier leaves
                 // its tail at this bar's start — seamless loop sustain instead
