@@ -10,6 +10,7 @@ struct SongSetupView: View {
     @ObservedObject private var favorites = FavoritesStore.shared
     @ObservedObject private var suggested = SuggestedTempoStore.shared
     @ObservedObject private var beat = BeatPlayer.shared
+    @ObservedObject private var beatLibrary = BeatLibrary.shared
     @State private var searchText = ""
     @State private var presetName = ""
     @FocusState private var nameFieldFocused: Bool
@@ -219,9 +220,18 @@ struct SongSetupView: View {
             Toggle("Include beat in recipe", isOn: $voice.beatInRecipe)
                 .font(.subheadline)
 
-            Picker("Beat style", selection: $beat.currentPattern) {
-                ForEach(BeatPattern.allCases) { p in
-                    Text("\(p.rawValue) — \(p.subtitle)").tag(p)
+            Picker("Beat style", selection: $voice.beatStyleSelection) {
+                Section("Built in") {
+                    ForEach(BeatPattern.allCases) { p in
+                        Text("\(p.rawValue) — \(p.subtitle)").tag("builtin:\(p.rawValue)")
+                    }
+                }
+                if !beatLibrary.beats.isEmpty {
+                    Section("My beats") {
+                        ForEach(beatLibrary.beats) { b in
+                            Text("♪ \(b.name) — \(b.bpm) BPM · \(b.hits.count) hits").tag("custom:\(b.name)")
+                        }
+                    }
                 }
             }
             .font(.subheadline)
@@ -254,7 +264,7 @@ struct SongSetupView: View {
         } header: {
             Text("Song Settings")
         } footer: {
-            Text("Beat starts at the tempo field (also sent to the C1), or the last tempo sent if the field is empty. A playing beat follows every tempo change live. With 'Include beat' on, the saved song starts DUUDU automatically when OnSong loads it.")
+            Text("Beat starts at the tempo field (also sent to the C1), or the last tempo sent if the field is empty. A playing beat follows every tempo change live. With 'Include beat' on, the saved song starts the selected beat automatically when OnSong loads it — a 'My beats' loop performs at the song's tempo.")
         }
     }
 
@@ -306,7 +316,11 @@ struct SongSetupView: View {
             lines.append("Bass \(b)% — Ch 9 · PC \(b + 1)")
         }
         if voice.beatInRecipe {
-            lines.append("Beat \(BeatPlayer.shared.currentPattern.rawValue) on load — Ch 10 · PC 2 (stop: PC 3)")
+            if let cb = voice.customBeatName {
+                lines.append("Beat \"\(cb)\" (my beat) performs on load")
+            } else {
+                lines.append("Beat \(BeatPlayer.shared.currentPattern.rawValue) on load — Ch 10 · PC 2 (stop: PC 3)")
+            }
         }
         return lines.isEmpty ? "Nothing yet." : lines.joined(separator: "\n")
     }
@@ -563,7 +577,7 @@ struct SongSetupView: View {
         var bits: [String] = p.patterns.map { $0.name }
         if let k = p.keyLabel { bits.append("Key \(k)") }
         if let t = p.tempoBPM { bits.append("\(t) BPM") }
-        if p.beatEnabled { bits.append(p.beatPattern.map { "Beat \($0)" } ?? "Beat") }
+        if p.beatEnabled { bits.append(p.customBeatName.map { "Beat ♪\($0)" } ?? (p.beatPattern.map { "Beat \($0)" } ?? "Beat")) }
         return bits.isEmpty ? "(empty)" : bits.joined(separator: " · ")
     }
 }

@@ -57,6 +57,23 @@ final class VoiceCommandManager: ObservableObject {
     @Published private(set) var tempoBPM: Int?
     /// "Include beat in recipe" toggle — saved into the preset, starts DUUDU on load.
     @Published var beatInRecipe = false
+    /// Set when the Beat style picker selects a saved custom loop (Beat tab
+    /// "My beats") instead of a built-in pattern. Stored on the preset;
+    /// takes precedence at fire time.
+    @Published var customBeatName: String? = nil
+    /// Combined Beat-style picker selection: "builtin:<rawValue>" or "custom:<name>".
+    var beatStyleSelection: String {
+        get { customBeatName.map { "custom:\($0)" } ?? "builtin:\(BeatPlayer.shared.currentPattern.rawValue)" }
+        set {
+            if newValue.hasPrefix("custom:") {
+                customBeatName = String(newValue.dropFirst("custom:".count))
+            } else {
+                customBeatName = nil
+                let raw = String(newValue.dropFirst("builtin:".count))
+                if let p = BeatPattern(rawValue: raw) { BeatPlayer.shared.currentPattern = p }
+            }
+        }
+    }
     @Published private(set) var drumVol: Int?
     @Published private(set) var bassVol: Int?
 
@@ -587,6 +604,7 @@ final class VoiceCommandManager: ObservableObject {
         items.removeAll()
         candidate = nil
         beatInRecipe = false
+        customBeatName = nil
         statusLine = "Cleared — fresh song."
     }
 
@@ -1068,7 +1086,8 @@ final class VoiceCommandManager: ObservableObject {
             drumVol: drumVol,
             bassVol: bassVol,
             beatEnabled: beatInRecipe,
-            beatPattern: beatInRecipe ? BeatPlayer.shared.currentPattern.rawValue : nil
+            beatPattern: (beatInRecipe && customBeatName == nil) ? BeatPlayer.shared.currentPattern.rawValue : nil,
+            customBeatName: beatInRecipe ? customBeatName : nil
         )
         let number = PresetStore.shared.add(preset)
         statusLine = "Saved \"\(preset.name)\" as song #\(number) — in OnSong: Ch 16 · PC \(number)."
@@ -1088,6 +1107,7 @@ final class VoiceCommandManager: ObservableObject {
         drumVol = preset.drumVol
         bassVol = preset.bassVol
         beatInRecipe = preset.beatEnabled
+        customBeatName = preset.customBeatName
         if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
             BeatPlayer.shared.currentPattern = p
         }
@@ -1105,6 +1125,7 @@ final class VoiceCommandManager: ObservableObject {
         drumVol = preset.drumVol
         bassVol = preset.bassVol
         beatInRecipe = preset.beatEnabled
+        customBeatName = preset.customBeatName
         if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
             BeatPlayer.shared.currentPattern = p
         }

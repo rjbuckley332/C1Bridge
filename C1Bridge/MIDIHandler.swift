@@ -210,6 +210,10 @@ class MIDIHandler {
         if (channel == 5 || channel == 6) && BeatPlayer.shared.isPlaying {
             if let t = lastTempoBPM { BeatPlayer.shared.start(bpm: t) }
         }
+        // A performing custom loop rides tempo changes the same way (stage 4).
+        if (channel == 5 || channel == 6), LooperEngine.shared.isPerforming, let t = lastTempoBPM {
+            LooperEngine.shared.retempo(t)
+        }
         
         // 4. VOLUME: Channels 8 & 9
         else if (channel == 8 || channel == 9) && program <= 101 {
@@ -221,6 +225,7 @@ class MIDIHandler {
         else if channel == 10 && program == 1 {
             sendHexWithLog("b11e02010002", name: "Global Reset")
             BeatPlayer.shared.stop()
+            LooperEngine.shared.stop()
         }
         // 4b. BEAT: Ch10 PC2 = DUUDU on (at last tempo sent), PC3 = off
         else if channel == 10 && program == 2 {
@@ -229,6 +234,7 @@ class MIDIHandler {
         }
         else if channel == 10 && program == 3 {
             BeatPlayer.shared.stop()
+            LooperEngine.shared.stop()
         }
     }
 

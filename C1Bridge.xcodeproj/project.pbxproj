@@ -15,6 +15,7 @@
 		466A37BB43295D955A5DB1AB /* BackgroundAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */; };
 		51390809AEA2A383F34653A8 /* LooperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05633343730386E82BC3C1CB /* LooperEngine.swift */; };
 		51DF4B5A3307A0C3D159A0A3 /* BeatPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535323137AC887F1262B1969 /* BeatPlayer.swift */; };
+		82F960E66714EDD2B1D387A4 /* BeatLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F84BF7B60DA4363EDCFC6CE /* BeatLibraryStore.swift */; };
 		8B8E911D750D2C88BFB32423 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F18C144DA9C30B36411E5FC8 /* LaunchScreen.storyboard */; };
 		9908E34779EBB3433F0A1AAB /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A746321A2AF5B1EB8A163E6 /* AppModel.swift */; };
 		9CAF2FDDA3CD524EE7E069F8 /* BeatSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBF175B997283A339BFE204 /* BeatSetupView.swift */; };
@@ -35,6 +36,7 @@
 		207EB7B6D1B960BE058B7766 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2A746321A2AF5B1EB8A163E6 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		2F41FF570DB83FC6D1A4F164 /* C1Bridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = C1Bridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2F84BF7B60DA4363EDCFC6CE /* BeatLibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatLibraryStore.swift; sourceTree = "<group>"; };
 		35A9774CF1858FF858FE7190 /* PayloadUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadUtils.swift; sourceTree = "<group>"; };
 		3B03C074777A053D6BE84C69 /* SuggestedTempoStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuggestedTempoStore.swift; sourceTree = "<group>"; };
 		535323137AC887F1262B1969 /* BeatPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatPlayer.swift; sourceTree = "<group>"; };
@@ -61,6 +63,7 @@
 				2A746321A2AF5B1EB8A163E6 /* AppModel.swift */,
 				D568B76A0D9879217511160B /* Assets.xcassets */,
 				F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */,
+				2F84BF7B60DA4363EDCFC6CE /* BeatLibraryStore.swift */,
 				535323137AC887F1262B1969 /* BeatPlayer.swift */,
 				BFBF175B997283A339BFE204 /* BeatSetupView.swift */,
 				A7F81C6AB2812C0916D1C1DD /* BLEManager.swift */,
@@ -174,6 +177,7 @@
 				9908E34779EBB3433F0A1AAB /* AppModel.swift in Sources */,
 				F6E89EEC3D85968A2432BC12 /* BLEManager.swift in Sources */,
 				466A37BB43295D955A5DB1AB /* BackgroundAudioManager.swift in Sources */,
+				82F960E66714EDD2B1D387A4 /* BeatLibraryStore.swift in Sources */,
 				51DF4B5A3307A0C3D159A0A3 /* BeatPlayer.swift in Sources */,
 				9CAF2FDDA3CD524EE7E069F8 /* BeatSetupView.swift in Sources */,
 				DAEEDDC05E219044C2060CB7 /* C1BridgeApp.swift in Sources */,
@@ -201,7 +205,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 58;
+				CURRENT_PROJECT_VERSION = 59;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -224,7 +228,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 58;
+				CURRENT_PROJECT_VERSION = 59;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

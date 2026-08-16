@@ -43,9 +43,13 @@ struct SongPreset: Identifiable, Codable, Hashable {
     var beatEnabled: Bool = false
     /// Which beat pattern to start (nil = whatever is currently selected).
     var beatPattern: String? = nil
+    /// A saved custom loop from the Beat tab's "My beats" to perform on load.
+    /// Takes precedence over beatPattern. Name is the identity in BeatLibrary
+    /// (re-saving a beat under the same name updates every referencing preset).
+    var customBeatName: String? = nil
     var triggerNumber: Int = 0 // 0 = legacy/unassigned; migration fills it
 
-    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, triggerNumber: Int = 0) {
+    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, customBeatName: String? = nil, triggerNumber: Int = 0) {
         self.id = id
         self.name = name
         self.patterns = patterns
@@ -56,6 +60,7 @@ struct SongPreset: Identifiable, Codable, Hashable {
         self.bassVol = bassVol
         self.beatEnabled = beatEnabled
         self.beatPattern = beatPattern
+        self.customBeatName = customBeatName
         self.triggerNumber = triggerNumber
     }
 
@@ -71,6 +76,7 @@ struct SongPreset: Identifiable, Codable, Hashable {
         bassVol = try c.decodeIfPresent(Int.self, forKey: .bassVol)
         beatEnabled = try c.decodeIfPresent(Bool.self, forKey: .beatEnabled) ?? false
         beatPattern = try c.decodeIfPresent(String.self, forKey: .beatPattern)
+        customBeatName = try c.decodeIfPresent(String.self, forKey: .customBeatName)
         triggerNumber = try c.decodeIfPresent(Int.self, forKey: .triggerNumber) ?? 0
     }
 }
@@ -165,10 +171,15 @@ final class PresetStore: ObservableObject {
             // the live-follow hook, and start() no-ops if the tempo matches.
             // beatEnabled == false leaves the beat untouched (no surprise stop).
             if preset.beatEnabled {
-                if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
-                    BeatPlayer.shared.currentPattern = p
+                if let cbName = preset.customBeatName, let savedBeat = BeatLibrary.shared.beat(named: cbName) {
+                    // Custom loop performs at the SONG's tempo (universal tempo rule).
+                    LooperEngine.shared.perform(savedBeat, bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
+                } else {
+                    if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
+                        BeatPlayer.shared.currentPattern = p
+                    }
+                    BeatPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
                 }
-                BeatPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
             }
         }
     }

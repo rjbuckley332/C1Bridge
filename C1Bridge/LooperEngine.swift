@@ -24,7 +24,7 @@ final class LooperEngine: ObservableObject {
 
     // MARK: - Model
 
-    enum Voice: String, CaseIterable, Identifiable {
+    enum Voice: String, CaseIterable, Identifiable, Codable {
         case kick = "Kick", snare = "Snare", tom = "Tom"
         case hat = "Hi-Hat", clap = "Clap", crash = "Crash"
         var id: String { rawValue }
@@ -43,6 +43,11 @@ final class LooperEngine: ObservableObject {
     // MARK: - Published state
 
     @Published private(set) var isRunning = false
+    /// Perform mode (stage 4): a saved beat playing as a song's groove, fired
+    /// by a preset. No count-in, no click, recording disarmed, fret input
+    /// ignored — in performance the frets are chord shapes, not drum pads.
+    @Published private(set) var isPerforming = false
+    @Published private(set) var performingName: String? = nil
     @Published var bpm: Int
     @Published var clickOn = true
     @Published private(set) var hits: [Hit] = []
@@ -57,7 +62,7 @@ final class LooperEngine: ObservableObject {
         1: .kick, 2: .snare, 3: .tom, 4: .hat, 5: .clap, 6: .crash, 7: .kick
     ]
 
-    var recordingArmed: Bool { isRunning && currentBar >= 1 }
+    var recordingArmed: Bool { isRunning && !isPerforming && currentBar >= countInBars }
 
     // MARK: - Audio
 
@@ -79,6 +84,10 @@ final class LooperEngine: ObservableObject {
     private var barFrames = 0
     private var lastMask: UInt8 = 0
     private var oneShotCache: [Voice: AVAudioPCMBuffer] = [:]
+    /// Bars of click-only count-in before recording arms. 1 when building a
+    /// loop from empty; 0 for replays (hits exist — Start jumps straight into
+    /// the groove, Rich 05:18 "how do I play it back") and for perform mode.
+    private(set) var countInBars = 1
 
     private init() {
         let last = MIDIHandler.lastSentTempoBPM
@@ -90,8 +99,18 @@ final class LooperEngine: ObservableObject {
     func start() {
         DispatchQueue.main.async {
             self.stopTransport()
+            self.isPerforming = false
+            self.performingName = nil
+            self.countInBars = self.hits.isEmpty ? 1 : 0
+            BeatPlayer.shared.stop()   // one drummer at a time
+            self.beginTransport(bpmOverride: nil)
+        }
+    }
+
+    /// Transport core shared by start() (test mode) and perform() (stage 4).
+    private func beginTransport(bpmOverride: Int?) {
             self.installGraphIfNeeded()
-            let bpm = max(50, min(200, self.bpm))
+            let bpm = max(50, min(200, bpmOverride ?? self.bpm))
             self.bpm = bpm
             let barDur = 4.0 * 60.0 / Double(bpm)
             self.stepFrames = Int((barDur / Double(Self.stepsPerBar)) * self.sampleRate)
@@ -117,14 +136,19 @@ final class LooperEngine: ObservableObject {
             self.schedTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
                 self?.pump()
             }
-            AppModel.shared.addLog("Looper ON — 1-bar grid @ \(bpm) BPM, count-in then recording")
-        }
+            if self.isPerforming {
+                AppModel.shared.addLog("Performing beat \"\(self.performingName ?? "?")\" @ \(bpm) BPM")
+            } else {
+                AppModel.shared.addLog("Looper ON — 1-bar grid @ \(bpm) BPM\(self.countInBars > 0 ? ", count-in then recording" : ", replay + overdub")")
+            }
     }
 
     func stop() {
         DispatchQueue.main.async {
             guard self.isRunning else { return }
             self.stopTransport()
+            self.isPerforming = false
+            self.performingName = nil
             AppModel.shared.addLog("Looper OFF — \(self.hits.count) hit(s) kept; Clear to wipe")
         }
     }
@@ -153,12 +177,65 @@ final class LooperEngine: ObservableObject {
         AppModel.shared.addLog("Undo pass \(lastPass) — removed \(n - hits.count) hit(s)")
     }
 
+    // MARK: - Saved beats (stage 4 — Rich 05:18 "how do I save it?")
+
+    /// Capture the current loop: grid hits (pass numbers dropped), tempo,
+    /// voice assignments. Hits are grid positions, not timestamps, so a saved
+    /// beat performs at ANY tempo — the song's tempo wins at fire time
+    /// (universal tempo rule).
+    func snapshot(name: String) -> SavedBeat {
+        SavedBeat(name: name, bpm: bpm,
+                  hits: hits.map { SavedHit(position: $0.position, step: $0.step) },
+                  voices: voiceForPosition)
+    }
+
+    /// Load a saved beat into Test mode, replacing the current loop. Leaves
+    /// perform mode. If the transport is running, the next scheduled bar
+    /// picks the new hits up.
+    func load(_ beat: SavedBeat) {
+        isPerforming = false
+        performingName = nil
+        bpm = beat.bpm
+        voiceForPosition = beat.voices
+        hits = beat.hits.map { Hit(position: $0.position, step: $0.step, pass: 1) }
+        AppModel.shared.addLog("Beat \"\(beat.name)\" loaded — \(beat.hits.count) hit(s) @ \(beat.bpm) BPM")
+    }
+
+    /// Perform a saved beat as a song's groove: no count-in, no click,
+    /// recording disarmed, frets ignored (chord shapes!). Tempo = the song's
+    /// tempo when given (universal tempo rule), else the beat's own.
+    func perform(_ beat: SavedBeat, bpm songBpm: Int?) {
+        DispatchQueue.main.async {
+            self.load(beat)
+            self.stopTransport()
+            self.isPerforming = true
+            self.performingName = beat.name
+            self.countInBars = 0
+            BeatPlayer.shared.stop()   // one drummer at a time
+            self.beginTransport(bpmOverride: songBpm)
+        }
+    }
+
+    /// Live tempo follow while performing (MIDIHandler hook): re-anchor at
+    /// the new tempo, keep hits + perform state.
+    func retempo(_ newBpm: Int) {
+        guard isPerforming, isRunning, newBpm != bpm else { return }
+        DispatchQueue.main.async {
+            self.bpm = newBpm
+            self.stopTransport()
+            self.beginTransport(bpmOverride: nil)
+        }
+    }
+
     // MARK: - Tap input (fret-press edge — Rich 04:20 "try it without the paddle")
 
     /// Fed from the Beat tab's onChange(of: ble.fretMask). Rising bits = new
     /// presses; each fires an instant voice one-shot and, when recording is
     /// armed, a quantized hit at the current grid position.
     func fretMaskChanged(_ mask: UInt8) {
+        // Perform mode: frets are chord shapes — track the mask (so exiting
+        // perform can't edge-fire) but never tap.
+        if isPerforming { lastMask = mask; return }
         let prev = lastMask
         lastMask = mask
         let rose = mask & ~prev
@@ -222,12 +299,12 @@ final class LooperEngine: ObservableObject {
         let out = data[0]
         memset(out, 0, barFrames * MemoryLayout<Float>.size)
 
-        if clickOn {
+        if clickOn && !isPerforming {
             for beat in 0..<4 {
                 addClick(into: out, atFrame: beat * 4 * stepFrames, accent: beat == 0, totalFrames: barFrames)
             }
         }
-        if barIndex >= 1 {
+        if barIndex >= countInBars {
             for hit in hits {
                 let voice = voiceForPosition[hit.position] ?? .kick
                 let at = hit.step * stepFrames

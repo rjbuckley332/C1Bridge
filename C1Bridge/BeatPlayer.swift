@@ -80,6 +80,7 @@ final class BeatPlayer: ObservableObject {
     /// loop is already playing; restarts in place if tempo or pattern changed.
     func start(bpm: Int) {
         DispatchQueue.main.async {
+            LooperEngine.shared.stop()   // one drummer at a time — DUUDU takes over
             let clamped = max(40, min(220, bpm))
             if self.isPlaying && self.currentBPM == clamped && self.playingPattern == self.currentPattern { return }
             self.stopInternal()

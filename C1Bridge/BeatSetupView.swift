@@ -15,6 +15,9 @@ import SwiftUI
 struct BeatSetupView: View {
     @ObservedObject private var ble = BLEManager.shared
     @ObservedObject private var looper = LooperEngine.shared
+    @ObservedObject private var beatLibrary = BeatLibrary.shared
+    @State private var showSaveAlert = false
+    @State private var beatNameInput = ""
 
     private static let pitchNames = ["C", "C#", "D", "D#", "E", "F",
                                      "F#", "G", "G#", "A", "A#", "B"]
@@ -55,6 +58,7 @@ struct BeatSetupView: View {
                 fretboardSection
                 telemetrySection
                 testModeSection
+                myBeatsSection
             }
             .padding()
         }
@@ -224,6 +228,16 @@ struct BeatSetupView: View {
                     .frame(width: 92)
             }
 
+            // Save (stage 4 — beat menu)
+            Button { beatNameInput = ""; showSaveAlert = true } label: {
+                Label("Save Beat…", systemImage: "square.and.arrow.down")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.blue)
+            .disabled(looper.hits.isEmpty)
+
             // Status line
             HStack {
                 Circle()
@@ -265,15 +279,76 @@ struct BeatSetupView: View {
         .padding()
         .background(Color(.secondarySystemBackground))
         .cornerRadius(10)
+        .alert("Name this beat", isPresented: $showSaveAlert) {
+            TextField("e.g. Rock groove", text: $beatNameInput)
+            Button("Save") {
+                let name = beatNameInput.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                beatLibrary.add(looper.snapshot(name: name))
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves the loop + voice assignments. Reusing a name overwrites — songs attached to that name get the update.")
+        }
+    }
+
+    // MARK: - My Beats (stage 4 — the beat menu)
+
+    private var myBeatsSection: some View {
+        VStack(spacing: 10) {
+            HStack {
+                Text("MY BEATS")
+                    .font(.caption).fontWeight(.bold)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("attach: Song Setup → Beat style")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if beatLibrary.beats.isEmpty {
+                Text("No saved beats yet — build a loop above, then Save Beat. Saved beats appear in Song Setup's Beat style picker and perform at the song's tempo.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(beatLibrary.beats) { beat in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(beat.name)
+                                .font(.subheadline).fontWeight(.semibold)
+                            Text("\(beat.bpm) BPM · \(beat.hits.count) hit(s)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button { looper.load(beat) } label: { Text("Load").font(.caption) }
+                            .buttonStyle(.bordered)
+                        Button { looper.load(beat); looper.start() } label: {
+                            Image(systemName: "play.fill").font(.caption)
+                        }
+                        .buttonStyle(.bordered).tint(.green)
+                        Button(role: .destructive) { beatLibrary.delete(beat) } label: {
+                            Image(systemName: "trash").font(.caption)
+                        }
+                        .buttonStyle(.bordered).tint(.red)
+                    }
+                    if beat.id != beatLibrary.beats.last?.id { Divider() }
+                }
+            }
+        }
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(10)
     }
 
     private var statusText: String {
+        if looper.isPerforming { return "Performing \"\(looper.performingName ?? "")\" — frets muted" }
         if !looper.isRunning {
             return looper.hits.isEmpty ? "Stopped — press Start, tap frets on the click"
                                        : "Stopped — \(looper.hits.count) hit(s) in loop"
         }
-        if looper.currentBar == 0 { return "Count-in…" }
-        return "Bar \(looper.currentBar) — recording • \(looper.hits.count) hit(s)"
+        if looper.currentBar < looper.countInBars { return "Count-in…" }
+        return "Bar \(looper.currentBar + 1 - looper.countInBars) — recording • \(looper.hits.count) hit(s)"
     }
 
     private func cellColor(_ pos: Int, _ step: Int) -> Color {
