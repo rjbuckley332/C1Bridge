@@ -244,6 +244,33 @@ struct BeatSetupView: View {
                     .frame(width: 92)
             }
 
+            // Mic capture (Rich 08:42: "just one layer with a separate button")
+            HStack(spacing: 10) {
+                Button { looper.micCapturing ? looper.stopMicCapture() : looper.startMicCapture() } label: {
+                    Label(looper.micCapturing ? "Stop Mic" : "Mic Beat",
+                          systemImage: looper.micCapturing ? "mic.fill" : "mic")
+                        .fontWeight(.semibold)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(looper.micCapturing ? .red : .purple)
+
+                Menu {
+                    ForEach(1...7, id: \.self) { pos in
+                        Button("Position \(pos) — \((looper.voiceForPosition[pos] ?? .kick).rawValue)") { looper.micArmedPosition = pos }
+                    }
+                } label: {
+                    Text("plays pos \(looper.micArmedPosition)")
+                        .font(.caption).fontWeight(.semibold)
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                        .background(Color.purple.opacity(0.12)).cornerRadius(6)
+                }
+
+                Text(looper.micCapturing ? "speaker muted — clap to the sweep" : "one layer per capture; speaker mutes while the mic listens")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // Save (stage 4 — beat menu)
             Button { beatNameInput = ""; showSaveAlert = true } label: {
                 Label("Save Beat…", systemImage: "square.and.arrow.down")

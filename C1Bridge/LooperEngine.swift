@@ -231,6 +231,7 @@ final class LooperEngine: ObservableObject {
         DispatchQueue.main.async {
             self.load(beat)
             self.stopTransport()
+            self.stopMicCapture()   // perform mutes inputs — and the mic's speaker-mute would silence the show
             self.isPerforming = true
             self.performingName = beat.name
             self.countInBars = 0
@@ -282,15 +283,22 @@ final class LooperEngine: ObservableObject {
         // beat 1 — no Start button, no count-in. The hit records at step 0
         // and first sounds one bar later, on the grid the tap established.
         guard isRunning else {
-            autoStart(firstPosition: position)
+            autoStart(firstPosition: position,
+                      heardLead: -AVAudioSession.sharedInstance().outputLatency)
             return
         }
         guard recordingArmed else { return }
         // Correct for output latency: he taps along with the click he HEARS,
         // which left the DAC outputLatency seconds ago (big on Bluetooth).
-        let latency = AVAudioSession.sharedInstance().outputLatency
-        let corrected = Date().addingTimeInterval(-latency)
-        let elapsed = corrected.timeIntervalSince(anchorDate)
+        recordQuantized(position: position,
+                        correctedDate: Date().addingTimeInterval(-AVAudioSession.sharedInstance().outputLatency))
+    }
+
+    /// Quantize a tap/onset onto the grid and record it. correctedDate must
+    /// already carry the source's latency correction (output for pads/frets,
+    /// input for mic).
+    private func recordQuantized(position: Int, correctedDate: Date) {
+        let elapsed = correctedDate.timeIntervalSince(anchorDate)
         guard elapsed >= 0 else { return }
         let barDur = Double(barFrames) / sampleRate
         let pass = Int(elapsed / barDur)
@@ -305,16 +313,112 @@ final class LooperEngine: ObservableObject {
     /// heard time, so the one-shot he just heard sits exactly on the loop's
     /// downbeat phase; the hit records at step 0 and first repeats one bar
     /// later. No count-in — the tap itself is the count.
-    private func autoStart(firstPosition: Int) {
-        let latency = AVAudioSession.sharedInstance().outputLatency
+    private func autoStart(firstPosition: Int, heardLead: Double) {
         stopTransport()
         isPerforming = false
         performingName = nil
         countInBars = 0
         BeatPlayer.shared.stop()   // one drummer at a time
-        beginTransport(bpmOverride: nil, anchorLead: -latency)
+        beginTransport(bpmOverride: nil, anchorLead: heardLead)
         hits.append(Hit(position: firstPosition, step: 0, pass: 0))
         AppModel.shared.addLog("Looper auto-start @ \(bpm) BPM — first tap = beat 1")
+    }
+
+    // MARK: - Mic capture (Rich 08:37 mic idea; 08:39 "one or the other, but
+    // not together"; 08:42 "just one layer with a separate button")
+
+    /// A dedicated Mic Beat button captures ONE layer per session: claps /
+    /// snaps / table-taps quantize onto the grid at the armed position. While
+    /// the mic is live the mixer output is MUTED — capture and playback never
+    /// overlap, so speaker feedback can't false-trigger (his "not together").
+    /// The transport clock keeps running silently; the playhead sweep is the
+    /// timing reference, and the grid keeps every layer in time via quantize.
+    @Published var micArmedPosition = 1
+    @Published private(set) var micCapturing = false
+    @Published private(set) var micOnsetCount = 0
+
+    private let micEngine = AVAudioEngine()
+    private var micAmbient: Float = 0.001
+    private var micRefractoryUntil = Date.distantPast
+    /// Estimated acoustic delay from clap to processed buffer: session input
+    /// latency + tap buffer + detecting at buffer end. Subtracted so the grid
+    /// aligns with the clap he HEARD, not the buffer we happened to finish.
+    private let micDetectionDelay = 0.025
+
+    func startMicCapture() {
+        DispatchQueue.main.async {
+            guard !self.isPerforming, !self.micCapturing else { return }
+            let session = AVAudioSession.sharedInstance()
+            do {
+                try session.setCategory(.playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker])
+                try session.setActive(true)
+            } catch {
+                AppModel.shared.addLog("Mic capture: session failed: \(error.localizedDescription)")
+                return
+            }
+            let input = self.micEngine.inputNode
+            input.installTap(onBus: 0, bufferSize: 512, format: input.outputFormat(forBus: 0)) { [weak self] buffer, _ in
+                self?.processMicBuffer(buffer)
+            }
+            do {
+                try self.micEngine.start()
+            } catch {
+                AppModel.shared.addLog("Mic engine failed: \(error.localizedDescription)")
+                input.removeTap(onBus: 0)
+                return
+            }
+            self.engine.mainMixerNode.outputVolume = 0   // speaker silent while the mic lives
+            self.micAmbient = 0.001
+            self.micCapturing = true
+            AppModel.shared.addLog("Mic capture ON (pos \(self.micArmedPosition)) — speaker muted; clap your layer")
+        }
+    }
+
+    func stopMicCapture() {
+        DispatchQueue.main.async {
+            guard self.micCapturing else { return }
+            self.micEngine.inputNode.removeTap(onBus: 0)
+            self.micEngine.stop()
+            self.engine.mainMixerNode.outputVolume = 1
+            self.micCapturing = false
+            try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
+            AppModel.shared.addLog("Mic capture OFF — playback unmuted")
+        }
+    }
+
+    /// Onset detection on the render thread: peak over ambient floor ×6 (or an
+    /// absolute floor), with a 90ms refractory so one clap can't double-fire.
+    /// The ambient floor tracks room tone slowly from quiet buffers.
+    private func processMicBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard let ch = buffer.floatChannelData?[0] else { return }
+        let n = Int(buffer.frameLength)
+        var peak: Float = 0
+        var i = 0
+        while i < n {
+            let a = abs(ch[i])
+            if a > peak { peak = a }
+            i += 4
+        }
+        let now = Date()
+        if peak > max(micAmbient * 6, 0.02), now > micRefractoryUntil {
+            micRefractoryUntil = now.addingTimeInterval(0.09)
+            DispatchQueue.main.async { self.micOnset(at: now) }
+        } else if peak < micAmbient * 2 {
+            micAmbient = micAmbient * 0.98 + peak * 0.02
+        }
+    }
+
+    private func micOnset(at date: Date) {
+        guard micCapturing else { return }
+        micOnsetCount += 1
+        if !isRunning {
+            // First onset silently auto-starts the loop — the clap IS beat 1.
+            autoStart(firstPosition: micArmedPosition, heardLead: -micDetectionDelay)
+        } else {
+            recordQuantized(position: micArmedPosition,
+                            correctedDate: date.addingTimeInterval(-micDetectionDelay))
+        }
+        AppModel.shared.addLog("Mic onset → pos \(micArmedPosition)")
     }
 
     // MARK: - Rolling bar scheduler
