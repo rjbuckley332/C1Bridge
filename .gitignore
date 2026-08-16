@@ -18,3 +18,6 @@ DerivedData/
 # Local dependency folders
 Carthage/Build/
 Pods/
+
+# Python cache (scripts)
+__pycache__/
