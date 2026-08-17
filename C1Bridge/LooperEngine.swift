@@ -205,7 +205,20 @@ final class LooperEngine: ObservableObject {
     func clear() {
         hits.removeAll()
         soundClasses.removeAll()
+        rowSounds.removeAll()
         AppModel.shared.addLog("Looper cleared")
+    }
+
+    /// Explicit row delete (build 70 — Rich 08:18 "can we figure some other
+    /// way to delete the row?"). Removes every hit on the row; a mic row
+    /// also forgets its captured sound and sound class. Long-press gesture
+    /// on the row label.
+    func deleteRow(_ row: Int) {
+        let hadSound = rowSounds[row] != nil
+        hits.removeAll { $0.position == row }
+        rowSounds.removeValue(forKey: row)
+        soundClasses.removeAll { $0.row == row }
+        AppModel.shared.addLog(hadSound ? "Mic row \(row) deleted — sound forgotten" : "Row \(row) cleared")
     }
 
     /// Remove the hits from the most recent pass that added any.
@@ -237,7 +250,7 @@ final class LooperEngine: ObservableObject {
             hits.removeAll { $0.position == position && $0.step == step }
         } else {
             let freshPass = (hits.map(\.pass).max() ?? 0) + 1
-            if let sid = representativeSampleID(forRow: position) {
+            if let sid = rowSounds[position] {
                 hits.append(Hit(position: position, step: step, pass: freshPass, sampleID: sid))
                 if let frames = sampleBuffers[sid] { playOneShotSample(frames) }
             } else {
@@ -245,12 +258,6 @@ final class LooperEngine: ObservableObject {
                 playOneShot(voiceForPosition[position] ?? .kick)
             }
         }
-    }
-
-    /// The row's canonical captured sound: its most recently recorded clip.
-    /// nil = synth row.
-    private func representativeSampleID(forRow row: Int) -> UUID? {
-        hits.last(where: { $0.position == row && $0.sampleID != nil })?.sampleID
     }
 
     /// One-shot for a captured clip (stamp preview). Shares the round-robin
@@ -607,6 +614,7 @@ final class LooperEngine: ObservableObject {
                 ? " (auto: new sound → own row)"
                 : " (auto: matched row \(a.row), d=\(String(format: "%.2f", a.d)))"
         }
+        rowSounds[row] = sid   // the row keeps its sound even if its dots are cleared later (build 70)
         recordQuantized(position: row,
                         correctedDate: onsetDate.addingTimeInterval(-micDetectionDelay),
                         sampleID: sid)
@@ -625,6 +633,12 @@ final class LooperEngine: ObservableObject {
         var count: Int
     }
     private var soundClasses: [SoundClass] = []
+    /// Build 70 (Rich 08:18 "if I uncheck all the purple dots in a row, the
+    /// row disappears"): a mic row's identity lives HERE, not in its dots.
+    /// The row keeps its 🎤 and its sound with ZERO dots, until he deletes
+    /// the row explicitly (long-press the label). View reads this for the
+    /// label; toggleHit stamps from it.
+    private(set) var rowSounds: [Int: UUID] = [:]   // row → canonical captured clip
     /// 4-D Euclidean match gate on [lo, mid, hi, centroid/8k]. His own
     /// claps/mouth sounds sit far apart in this space; the running-average
     /// centroid self-corrects small drift. Mis-sorts fold to the nearest row
@@ -697,7 +711,7 @@ final class LooperEngine: ObservableObject {
             soundClasses[b.idx] = sc
             return (sc.row, false, b.d)
         }
-        let usedRows = Set(soundClasses.map(\.row))
+        let usedRows = Set(soundClasses.map(\.row)).union(rowSounds.keys)
         let rowsWithHits = Set(hits.map(\.position))
         guard let row = (1...7).first(where: { !usedRows.contains($0) && !rowsWithHits.contains($0) }) else {
             if let b = best {   // grid full: fold into nearest
@@ -718,8 +732,10 @@ final class LooperEngine: ObservableObject {
     /// what the beat already has.
     private func rebuildSoundClasses() {
         soundClasses = []
+        rowSounds = [:]
         for hit in hits where hit.sampleID != nil {
             guard let sid = hit.sampleID, let frames = sampleBuffers[sid] else { continue }
+            rowSounds[hit.position] = sid   // last wins = most recent clip on the row
             let f = spectralFeatures(frames)
             if let i = soundClasses.firstIndex(where: { $0.row == hit.position }) {
                 var sc = soundClasses[i]

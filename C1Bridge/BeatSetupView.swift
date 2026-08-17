@@ -19,6 +19,8 @@ struct BeatSetupView: View {
     @State private var showSaveAlert = false
     @State private var beatNameInput = ""
     @State private var flashPositions = Set<Int>()
+    @State private var showRowDeleteAlert = false
+    @State private var rowPendingDelete = 0
 
     private static let pitchNames = ["C", "C#", "D", "D#", "E", "F",
                                      "F#", "G", "G#", "A", "A#", "B"]
@@ -301,11 +303,12 @@ struct BeatSetupView: View {
             VStack(spacing: 4) {
                 ForEach(1...7, id: \.self) { pos in
                     HStack(spacing: 4) {
-                        // Build 68: a row holding captured mic sounds shows
-                        // 🎤, not its synth-voice letter — Rich 07:55 read
-                        // his purple dot on row 4 as "filed under hi-hat".
+                        // Builds 68/70: a MIC row shows 🎤 — and its identity
+                        // lives in rowSounds, NOT in its dots, so clearing
+                        // every dot no longer evaporates the row (Rich 08:18).
+                        // Long-press the label to delete/clear the row on purpose.
                         Group {
-                            if looper.hits.contains(where: { $0.position == pos && $0.sampleID != nil }) {
+                            if looper.rowSounds[pos] != nil {
                                 Image(systemName: "mic.fill")
                                     .foregroundStyle(Color.purple)
                             } else {
@@ -315,6 +318,11 @@ struct BeatSetupView: View {
                         }
                         .font(.system(.caption2, design: .monospaced))
                         .frame(width: 16, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onLongPressGesture {
+                            rowPendingDelete = pos
+                            showRowDeleteAlert = true
+                        }
                         ForEach(0..<LooperEngine.stepsPerBar, id: \.self) { step in
                             Circle()
                                 .fill(cellColor(pos, step))
@@ -337,6 +345,7 @@ struct BeatSetupView: View {
                 // Build 66: the dots ARE the editor — Rich 05:48 "too fast to
                 // press the fret or button". Tap to place/remove; no timing needed.
                 Text("tap a dot to place or remove a hit — 🎤 rows stamp their recorded sound")
+                Text("long-press a row's label to delete the row")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -356,6 +365,19 @@ struct BeatSetupView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Saves the loop + voice assignments. Reusing a name overwrites — songs attached to that name get the update.")
+        }
+        .alert(looper.rowSounds[rowPendingDelete] != nil
+               ? "Delete mic row \(rowPendingDelete)?"
+               : "Clear row \(rowPendingDelete)?",
+               isPresented: $showRowDeleteAlert) {
+            Button(looper.rowSounds[rowPendingDelete] != nil ? "Delete" : "Clear", role: .destructive) {
+                looper.deleteRow(rowPendingDelete)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(looper.rowSounds[rowPendingDelete] != nil
+                 ? "Removes its dots and forgets its recorded sound."
+                 : "Removes all dots on this row.")
         }
     }
 
