@@ -214,6 +214,28 @@ final class LooperEngine: ObservableObject {
         AppModel.shared.addLog("Undo pass \(lastPass) — removed \(n - hits.count) hit(s)")
     }
 
+    // MARK: - Manual grid editing (build 66 — Rich 05:48 "I need to be able
+    // to press the green dots manually; it happens too fast for me")
+
+    /// Tap-to-toggle a grid cell from the Beat tab's dot grid: an empty cell
+    /// gets a synth-voice hit (and SOUNDS it, so he hears what he placed);
+    /// a filled cell loses every hit stacked on it (mic captures stack several
+    /// clips per cell — one tap cleans the whole cell). Each manual add gets
+    /// its own fresh pass number, so Undo peels manual taps off one at a time,
+    /// most-recent first, before touching recorded passes.
+    /// Works stopped or running — the bar renderer re-reads the live hit set,
+    /// so edits land on the next bar line. Never starts the transport: grid
+    /// taps are for BUILDING the beat, not playing it.
+    func toggleHit(position: Int, step: Int) {
+        if hits.contains(where: { $0.position == position && $0.step == step }) {
+            hits.removeAll { $0.position == position && $0.step == step }
+        } else {
+            let freshPass = (hits.map(\.pass).max() ?? 0) + 1
+            hits.append(Hit(position: position, step: step, pass: freshPass))
+            playOneShot(voiceForPosition[position] ?? .kick)
+        }
+    }
+
     // MARK: - Saved beats (stage 4 — Rich 05:18 "how do I save it?")
 
     /// Capture the current loop: grid hits (pass numbers dropped), tempo,

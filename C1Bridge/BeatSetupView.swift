@@ -305,6 +305,8 @@ struct BeatSetupView: View {
                                 .fill(cellColor(pos, step))
                                 .frame(maxWidth: .infinity)
                                 .aspectRatio(1, contentMode: .fit)
+                                .contentShape(Rectangle())   // fat-finger slop: whole slot taps
+                                .onTapGesture { looper.toggleHit(position: pos, step: step) }
                         }
                     }
                 }
@@ -317,6 +319,13 @@ struct BeatSetupView: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
+                // Build 66: the dots ARE the editor — Rich 05:48 "too fast to
+                // press the fret or button". Tap to place/remove; no timing needed.
+                Text("tap a dot to place or remove a hit — no timing required")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 2)
             }
         }
         .padding()
@@ -388,8 +397,8 @@ struct BeatSetupView: View {
         if looper.isPerforming { return "Performing \"\(looper.performingName ?? "")\" — frets muted" }
         if !looper.isRunning {
             return looper.hits.isEmpty
-                ? "Stopped — tap a pad or a fret to start the loop (first tap = beat 1)"
-                : "Stopped — \(looper.hits.count) hit(s) kept; tap to restart on your downbeat"
+                ? "Stopped — tap dots to place hits, or a pad/fret to start (first tap = beat 1)"
+                : "Stopped — \(looper.hits.count) hit(s) kept; dots edit, a pad restarts on your downbeat"
         }
         if looper.currentBar < looper.countInBars { return "Count-in…" }
         return "Bar \(looper.currentBar + 1 - looper.countInBars) — recording • \(looper.hits.count) hit(s)"
