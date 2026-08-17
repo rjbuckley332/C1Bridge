@@ -220,11 +220,15 @@ final class LooperEngine: ObservableObject {
     // to press the green dots manually; it happens too fast for me")
 
     /// Tap-to-toggle a grid cell from the Beat tab's dot grid: an empty cell
-    /// gets a synth-voice hit (and SOUNDS it, so he hears what he placed);
-    /// a filled cell loses every hit stacked on it (mic captures stack several
-    /// clips per cell — one tap cleans the whole cell). Each manual add gets
-    /// its own fresh pass number, so Undo peels manual taps off one at a time,
+    /// gets a hit (and SOUNDS it, so he hears what he placed); a filled cell
+    /// loses every hit stacked on it (mic captures stack several clips per
+    /// cell — one tap cleans the whole cell). Each manual add gets its own
+    /// fresh pass number, so Undo peels manual taps off one at a time,
     /// most-recent first, before touching recorded passes.
+    /// Build 69 (Rich 08:07 "add my custom sound from the mic into any beat
+    /// on the row"): on a 🎤 row the stamp is PURPLE — the new hit plays the
+    /// row's own recorded sound, not the synth voice. The row IS the
+    /// instrument there; the synth letter underneath is irrelevant.
     /// Works stopped or running — the bar renderer re-reads the live hit set,
     /// so edits land on the next bar line. Never starts the transport: grid
     /// taps are for BUILDING the beat, not playing it.
@@ -233,8 +237,38 @@ final class LooperEngine: ObservableObject {
             hits.removeAll { $0.position == position && $0.step == step }
         } else {
             let freshPass = (hits.map(\.pass).max() ?? 0) + 1
-            hits.append(Hit(position: position, step: step, pass: freshPass))
-            playOneShot(voiceForPosition[position] ?? .kick)
+            if let sid = representativeSampleID(forRow: position) {
+                hits.append(Hit(position: position, step: step, pass: freshPass, sampleID: sid))
+                if let frames = sampleBuffers[sid] { playOneShotSample(frames) }
+            } else {
+                hits.append(Hit(position: position, step: step, pass: freshPass))
+                playOneShot(voiceForPosition[position] ?? .kick)
+            }
+        }
+    }
+
+    /// The row's canonical captured sound: its most recently recorded clip.
+    /// nil = synth row.
+    private func representativeSampleID(forRow row: Int) -> UUID? {
+        hits.last(where: { $0.position == row && $0.sampleID != nil })?.sampleID
+    }
+
+    /// One-shot for a captured clip (stamp preview). Shares the round-robin
+    /// pool with synth one-shots so tails overlap instead of choking.
+    private func playOneShotSample(_ frames: [Float]) {
+        DispatchQueue.main.async {
+            self.installGraphIfNeeded()
+            if !self.engine.isRunning { try? self.engine.start() }
+            guard self.engine.isRunning,
+                  let format = AVAudioFormat(standardFormatWithSampleRate: self.sampleRate, channels: 1),
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames.count)),
+                  let data = buffer.floatChannelData else { return }
+            buffer.frameLength = AVAudioFrameCount(frames.count)
+            for i in 0..<frames.count { data[0][i] = frames[i] }
+            let node = self.oneShotPlayers[self.oneShotNext]
+            self.oneShotNext = (self.oneShotNext + 1) % self.oneShotPlayers.count
+            node.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+            if !node.isPlaying { node.play() }
         }
     }
 

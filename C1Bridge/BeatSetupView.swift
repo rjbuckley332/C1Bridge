@@ -267,7 +267,7 @@ struct BeatSetupView: View {
                 }
 
                 Text(looper.micCapturing
-                     ? "speaker muted — your sounds become the beat"
+                     ? "speaker muted — your sounds become the beat (dot edits stay silent while the mic is on)"
                      : (looper.micAutoRow
                         ? "auto: each new sound claims its own row — purple dots are your recordings"
                         : "forced row: every captured sound lands on the picked position"))
@@ -336,7 +336,7 @@ struct BeatSetupView: View {
                 }
                 // Build 66: the dots ARE the editor — Rich 05:48 "too fast to
                 // press the fret or button". Tap to place/remove; no timing needed.
-                Text("tap a dot to place or remove a hit — no timing required")
+                Text("tap a dot to place or remove a hit — 🎤 rows stamp their recorded sound")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
