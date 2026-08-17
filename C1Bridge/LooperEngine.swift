@@ -564,11 +564,19 @@ final class LooperEngine: ObservableObject {
         }
         let sid = UUID()
         sampleBuffers[sid] = scaled
-        let row = micAutoRow ? assignRow(forFrames: scaled) : micArmedPosition
+        var row = micArmedPosition
+        var rowNote = ""
+        if micAutoRow {
+            let a = assignRow(forFrames: scaled)
+            row = a.row
+            rowNote = a.isNew
+                ? " (auto: new sound → own row)"
+                : " (auto: matched row \(a.row), d=\(String(format: "%.2f", a.d)))"
+        }
         recordQuantized(position: row,
                         correctedDate: onsetDate.addingTimeInterval(-micDetectionDelay),
                         sampleID: sid)
-        AppModel.shared.addLog("Mic clip \(String(format: "%.2f", Double(scaled.count) / sampleRate))s → row \(row)\(micAutoRow ? " (auto)" : "")")
+        AppModel.shared.addLog("Mic clip \(String(format: "%.2f", Double(scaled.count) / sampleRate))s → row \(row)\(rowNote)")
     }
 
     // MARK: - Mic sound classes (build 67 — auto row per sound)
@@ -634,9 +642,12 @@ final class LooperEngine: ObservableObject {
     }
 
     /// Assign a captured clip its grid row: nearest sound class within the
-    /// match gate, else the next free row (new character = new instrument).
-    /// All 7 rows claimed → folds into the nearest class.
-    private func assignRow(forFrames frames: [Float]) -> Int {
+    /// match gate, else the next TRULY free row (no class AND no hits — a
+    /// fresh sample must never stack onto a row of green synth dots; Rich
+    /// 07:55 "it should have its own row"). All 7 rows taken → folds into
+    /// the nearest class. Returns row + whether a new class was born + the
+    /// match distance (for the log).
+    private func assignRow(forFrames frames: [Float]) -> (row: Int, isNew: Bool, d: Float) {
         let f = spectralFeatures(frames)
         var best: (idx: Int, d: Float)?
         for (i, sc) in soundClasses.enumerated() {
@@ -650,21 +661,22 @@ final class LooperEngine: ObservableObject {
             sc.count += 1
             for k in 0..<f.count { sc.centroid[k] += (f[k] - sc.centroid[k]) / Float(sc.count) }
             soundClasses[b.idx] = sc
-            return sc.row
+            return (sc.row, false, b.d)
         }
-        let used = Set(soundClasses.map(\.row))
-        guard let row = (1...7).first(where: { !used.contains($0) }) else {
+        let usedRows = Set(soundClasses.map(\.row))
+        let rowsWithHits = Set(hits.map(\.position))
+        guard let row = (1...7).first(where: { !usedRows.contains($0) && !rowsWithHits.contains($0) }) else {
             if let b = best {   // grid full: fold into nearest
                 var sc = soundClasses[b.idx]
                 sc.count += 1
                 for k in 0..<f.count { sc.centroid[k] += (f[k] - sc.centroid[k]) / Float(sc.count) }
                 soundClasses[b.idx] = sc
-                return sc.row
+                return (sc.row, false, b.d)
             }
-            return micArmedPosition
+            return (micArmedPosition, false, 0)
         }
         soundClasses.append(SoundClass(row: row, centroid: f, count: 1))
-        return row
+        return (row, true, best?.d ?? 0)
     }
 
     /// Rebuild class memory from a loaded beat's sample hits (grouped by

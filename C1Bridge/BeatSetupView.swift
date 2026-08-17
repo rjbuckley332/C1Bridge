@@ -301,10 +301,20 @@ struct BeatSetupView: View {
             VStack(spacing: 4) {
                 ForEach(1...7, id: \.self) { pos in
                     HStack(spacing: 4) {
-                        Text((looper.voiceForPosition[pos] ?? .kick).abbrev)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 16, alignment: .leading)
+                        // Build 68: a row holding captured mic sounds shows
+                        // 🎤, not its synth-voice letter — Rich 07:55 read
+                        // his purple dot on row 4 as "filed under hi-hat".
+                        Group {
+                            if looper.hits.contains(where: { $0.position == pos && $0.sampleID != nil }) {
+                                Image(systemName: "mic.fill")
+                                    .foregroundStyle(Color.purple)
+                            } else {
+                                Text((looper.voiceForPosition[pos] ?? .kick).abbrev)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.system(.caption2, design: .monospaced))
+                        .frame(width: 16, alignment: .leading)
                         ForEach(0..<LooperEngine.stepsPerBar, id: \.self) { step in
                             Circle()
                                 .fill(cellColor(pos, step))
