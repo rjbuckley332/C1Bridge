@@ -255,17 +255,22 @@ struct BeatSetupView: View {
                 .tint(looper.micCapturing ? .red : .purple)
 
                 Menu {
+                    Button("Auto — each new sound gets its own row") { looper.micAutoRow = true }
                     ForEach(1...7, id: \.self) { pos in
-                        Button("Position \(pos) — \((looper.voiceForPosition[pos] ?? .kick).rawValue)") { looper.micArmedPosition = pos }
+                        Button("Force pos \(pos) — \((looper.voiceForPosition[pos] ?? .kick).rawValue)") { looper.micAutoRow = false; looper.micArmedPosition = pos }
                     }
                 } label: {
-                    Text("plays pos \(looper.micArmedPosition)")
+                    Text(looper.micAutoRow ? "auto rows" : "plays pos \(looper.micArmedPosition)")
                         .font(.caption).fontWeight(.semibold)
                         .padding(.horizontal, 8).padding(.vertical, 6)
                         .background(Color.purple.opacity(0.12)).cornerRadius(6)
                 }
 
-                Text(looper.micCapturing ? "speaker muted — your sounds become the beat" : "one layer per capture; your recorded sounds play back")
+                Text(looper.micCapturing
+                     ? "speaker muted — your sounds become the beat"
+                     : (looper.micAutoRow
+                        ? "auto: each new sound claims its own row — purple dots are your recordings"
+                        : "forced row: every captured sound lands on the picked position"))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -404,8 +409,13 @@ struct BeatSetupView: View {
         return "Bar \(looper.currentBar + 1 - looper.countInBars) — recording • \(looper.hits.count) hit(s)"
     }
 
+    private func hasSampleHit(_ position: Int, _ step: Int) -> Bool {
+        looper.hits.contains { $0.position == position && $0.step == step && $0.sampleID != nil }
+    }
+
     private func cellColor(_ pos: Int, _ step: Int) -> Color {
-        if hasHit(pos, step) { return .green }
+        // Build 67: purple = captured mic sound, green = synth voice.
+        if hasHit(pos, step) { return hasSampleHit(pos, step) ? .purple : .green }
         if looper.isRunning, step == looper.currentStep, looper.currentBar >= 0 {
             return step % 4 == 0 ? Color.blue.opacity(0.45) : Color.blue.opacity(0.2)
         }

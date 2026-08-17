@@ -12,6 +12,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Self-source credentials when not already in the environment (2026-08-17
+# lesson: asc.env sets vars WITHOUT export, so a plain `source` in the
+# caller never reaches this child process — set -a is required).
+if [[ -z "${ASC_KEY_ID:-}" && -f "$HOME/.appstoreconnect/asc.env" ]]; then
+  set -a; source "$HOME/.appstoreconnect/asc.env"; set +a
+fi
+
 ASC_KEY_ID="${ASC_KEY_ID:?Set ASC_KEY_ID (App Store Connect API key id)}"
 ASC_ISSUER_ID="${ASC_ISSUER_ID:?Set ASC_ISSUER_ID (App Store Connect issuer id)}"
 KEY_PATH="${ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8}"

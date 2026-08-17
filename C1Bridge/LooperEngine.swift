@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Accelerate
 
 /// Test-mode beat looper (stage 3, build 56 — Rich 04:17 "tap out a beat and
 /// play it back… not saving anything").
@@ -203,6 +204,7 @@ final class LooperEngine: ObservableObject {
 
     func clear() {
         hits.removeAll()
+        soundClasses.removeAll()
         AppModel.shared.addLog("Looper cleared")
     }
 
@@ -273,6 +275,7 @@ final class LooperEngine: ObservableObject {
             Hit(position: sh.position, step: sh.step, pass: 1,
                 sampleID: sh.sampleFile.flatMap { UUID(uuidString: String($0.dropLast(4))) })
         }
+        rebuildSoundClasses()
         AppModel.shared.addLog("Beat \"\(beat.name)\" loaded — \(beat.hits.count) hit(s) @ \(beat.bpm) BPM")
     }
 
@@ -386,6 +389,12 @@ final class LooperEngine: ObservableObject {
     /// The transport clock keeps running silently; the playhead sweep is the
     /// timing reference, and the grid keeps every layer in time via quantize.
     @Published var micArmedPosition = 1
+    /// Build 67 (Rich 07:35 "each time I create a Sound with the mic it
+    /// should have its own row"; 07:40 "Auto please"): when true, captured
+    /// clips auto-sort onto rows by spectral character — a new sound claims
+    /// the next free row, a familiar sound comes home to its row. The
+    /// position picker overrides to force one row (old behavior).
+    @Published var micAutoRow = true
     @Published private(set) var micCapturing = false
     @Published private(set) var micOnsetCount = 0
 
@@ -555,10 +564,126 @@ final class LooperEngine: ObservableObject {
         }
         let sid = UUID()
         sampleBuffers[sid] = scaled
-        recordQuantized(position: micArmedPosition,
+        let row = micAutoRow ? assignRow(forFrames: scaled) : micArmedPosition
+        recordQuantized(position: row,
                         correctedDate: onsetDate.addingTimeInterval(-micDetectionDelay),
                         sampleID: sid)
-        AppModel.shared.addLog("Mic clip \(String(format: "%.2f", Double(scaled.count) / sampleRate))s → pos \(micArmedPosition)")
+        AppModel.shared.addLog("Mic clip \(String(format: "%.2f", Double(scaled.count) / sampleRate))s → row \(row)\(micAutoRow ? " (auto)" : "")")
+    }
+
+    // MARK: - Mic sound classes (build 67 — auto row per sound)
+
+    /// A learned sound character: clips with similar spectra share a grid
+    /// row, so beatboxed "boom"/"crack"/"tss" sorts itself like a drum
+    /// machine. Proven offline on his 77-clip Light pile (spike
+    /// /tmp/c1beats/spike_autorow.py separated it into 4 clean rows).
+    private struct SoundClass {
+        var row: Int            // grid position 1-7 claimed for this character
+        var centroid: [Float]   // running-average feature vector
+        var count: Int
+    }
+    private var soundClasses: [SoundClass] = []
+    /// 4-D Euclidean match gate on [lo, mid, hi, centroid/8k]. His own
+    /// claps/mouth sounds sit far apart in this space; the running-average
+    /// centroid self-corrects small drift. Mis-sorts fold to the nearest row
+    /// and are dot-fixable (build 66).
+    private let classMatchThreshold: Float = 0.28
+
+    /// Feature vector of a finalized clip: band-energy fractions (40-150 /
+    /// 150-2k / 2k-11k) + spectral centroid, on the loudest 2048-sample
+    /// window — same recipe as the offline spike.
+    private func spectralFeatures(_ x: [Float]) -> [Float] {
+        let n = 2048
+        guard x.count >= 256 else { return [0, 0, 0, 0] }
+        var peak: Float = 0
+        var peakIdx = 0
+        for (i, v) in x.enumerated() where abs(v) > peak { peak = abs(v); peakIdx = i }
+        let start = max(0, min(peakIdx - n / 2, x.count - n))
+        let count = min(n, x.count - start)
+        var win = [Float](repeating: 0, count: n)
+        vDSP_hann_window(&win, vDSP_Length(n), Int32(vDSP_HANN_NORM))
+        var seg = [Float](repeating: 0, count: n)
+        for i in 0..<count { seg[i] = x[start + i] * win[i] }
+        let log2n = vDSP_Length(log2f(Float(n)))
+        guard let setup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else { return [0, 0, 0, 0] }
+        defer { vDSP_destroy_fftsetup(setup) }
+        var realp = [Float](repeating: 0, count: n / 2)
+        var imagp = [Float](repeating: 0, count: n / 2)
+        var mags = [Float](repeating: 0, count: n / 2)
+        seg.withUnsafeMutableBufferPointer { buf in
+            buf.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: n / 2) { cptr in
+                var split = DSPSplitComplex(realp: &realp, imagp: &imagp)
+                vDSP_ctoz(cptr, 2, &split, 1, vDSP_Length(n / 2))
+                vDSP_fft_zrip(setup, &split, 1, log2n, FFTDirection(FFT_FORWARD))
+            }
+        }
+        var split = DSPSplitComplex(realp: &realp, imagp: &imagp)
+        vDSP_zvmags(&split, 1, &mags, 1, vDSP_Length(n / 2))
+        let binHz = Float(sampleRate) / Float(n)
+        func band(_ loHz: Float, _ hiHz: Float) -> Float {
+            let a = max(1, Int(loHz / binHz)), b = min(n / 2 - 1, Int(hiHz / binHz))
+            guard b >= a else { return 0 }
+            return mags[a...b].reduce(0, +)
+        }
+        let lo = band(40, 150), mid = band(150, 2000), hi = band(2000, 11000)
+        let tot = lo + mid + hi + 1e-9
+        var cent: Float = 0, msum: Float = 0
+        for i in 0..<n / 2 { cent += Float(i) * binHz * mags[i]; msum += mags[i] }
+        cent = msum > 0 ? cent / msum : 0
+        return [lo / tot, mid / tot, hi / tot, min(cent / 8000, 1)]
+    }
+
+    /// Assign a captured clip its grid row: nearest sound class within the
+    /// match gate, else the next free row (new character = new instrument).
+    /// All 7 rows claimed → folds into the nearest class.
+    private func assignRow(forFrames frames: [Float]) -> Int {
+        let f = spectralFeatures(frames)
+        var best: (idx: Int, d: Float)?
+        for (i, sc) in soundClasses.enumerated() {
+            var d2: Float = 0
+            for k in 0..<f.count { let dd = f[k] - sc.centroid[k]; d2 += dd * dd }
+            let d = d2.squareRoot()
+            if best == nil || d < best!.d { best = (i, d) }
+        }
+        if let b = best, b.d <= classMatchThreshold {
+            var sc = soundClasses[b.idx]
+            sc.count += 1
+            for k in 0..<f.count { sc.centroid[k] += (f[k] - sc.centroid[k]) / Float(sc.count) }
+            soundClasses[b.idx] = sc
+            return sc.row
+        }
+        let used = Set(soundClasses.map(\.row))
+        guard let row = (1...7).first(where: { !used.contains($0) }) else {
+            if let b = best {   // grid full: fold into nearest
+                var sc = soundClasses[b.idx]
+                sc.count += 1
+                for k in 0..<f.count { sc.centroid[k] += (f[k] - sc.centroid[k]) / Float(sc.count) }
+                soundClasses[b.idx] = sc
+                return sc.row
+            }
+            return micArmedPosition
+        }
+        soundClasses.append(SoundClass(row: row, centroid: f, count: 1))
+        return row
+    }
+
+    /// Rebuild class memory from a loaded beat's sample hits (grouped by
+    /// their saved rows) so NEW mic sounds still sort consistently against
+    /// what the beat already has.
+    private func rebuildSoundClasses() {
+        soundClasses = []
+        for hit in hits where hit.sampleID != nil {
+            guard let sid = hit.sampleID, let frames = sampleBuffers[sid] else { continue }
+            let f = spectralFeatures(frames)
+            if let i = soundClasses.firstIndex(where: { $0.row == hit.position }) {
+                var sc = soundClasses[i]
+                sc.count += 1
+                for k in 0..<f.count { sc.centroid[k] += (f[k] - sc.centroid[k]) / Float(sc.count) }
+                soundClasses[i] = sc
+            } else {
+                soundClasses.append(SoundClass(row: hit.position, centroid: f, count: 1))
+            }
+        }
     }
 
     private func micOnset(at date: Date) {
