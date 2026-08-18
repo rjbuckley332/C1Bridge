@@ -58,6 +58,20 @@ struct BeatSetupView: View {
                     .cornerRadius(8)
                 }
 
+                // Hard builder ON/OFF — when OFF, fret presses and pads are
+                // inert, so playing guitar can never leak into the builder.
+                Button {
+                    looper.builderArmed.toggle()
+                } label: {
+                    Label(looper.builderArmed ? "BUILDER ON" : "BUILDER OFF",
+                          systemImage: looper.builderArmed ? "power" : "power.slash")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(looper.builderArmed ? .green : .gray)
+
                 fretboardSection
                 telemetrySection
                 testModeSection
@@ -432,6 +446,7 @@ struct BeatSetupView: View {
 
     private var statusText: String {
         if looper.isPerforming { return "Performing \"\(looper.performingName ?? "")\" — frets muted" }
+        if !looper.builderArmed { return "Builder OFF — flip the switch up top to build beats" }
         if !looper.isRunning {
             return looper.hits.isEmpty
                 ? "Stopped — tap dots to place hits, or a pad/fret to start (first tap = beat 1)"

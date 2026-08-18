@@ -60,6 +60,17 @@ final class LooperEngine: ObservableObject {
     /// ignored — in performance the frets are chord shapes, not drum pads.
     @Published private(set) var isPerforming = false
     @Published private(set) var performingName: String? = nil
+    /// Hard builder ON/OFF (Rich 2026-08-18: "we need a hard on off button").
+    /// OFF = fret presses and on-screen pads are completely inert — no sound,
+    /// no auto-start, no recording. Default OFF at launch so playing guitar
+    /// can NEVER leak into the builder mid-song. Does not affect perform
+    /// mode: preset-fired beats keep working regardless of this switch.
+    @Published var builderArmed: Bool = false {
+        didSet {
+            if !builderArmed, !isPerforming, isRunning { stop() }
+            AppModel.shared.addLog("Beat builder \(builderArmed ? "ON — frets/pads live" : "OFF — frets/pads inert")")
+        }
+    }
     @Published var bpm: Int
     @Published var clickOn = true
     @Published private(set) var hits: [Hit] = []
@@ -358,6 +369,9 @@ final class LooperEngine: ObservableObject {
         if isPerforming { lastMask = mask; return }
         let prev = lastMask
         lastMask = mask
+        // Builder disarmed: frets are inert. The mask is still tracked so a
+        // chord already held can't edge-fire the moment the builder arms.
+        guard builderArmed else { return }
         let rose = mask & ~prev
         guard rose != 0 else { return }
         for pos in 1...7 where rose & UInt8(1 << pos) != 0 {
@@ -372,6 +386,7 @@ final class LooperEngine: ObservableObject {
     /// (frets are chord shapes; the screen is stowed).
     func tap(position: Int) {
         guard !isPerforming else { return }
+        guard builderArmed else { return }   // hard OFF: pads/frets inert
         let voice = voiceForPosition[position] ?? .kick
         playOneShot(voice)
         // Loop-pedal auto-start (Rich 08:06 "go for both"): with the
