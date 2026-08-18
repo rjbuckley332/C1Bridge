@@ -15,6 +15,7 @@
 		466A37BB43295D955A5DB1AB /* BackgroundAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */; };
 		51390809AEA2A383F34653A8 /* LooperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05633343730386E82BC3C1CB /* LooperEngine.swift */; };
 		51DF4B5A3307A0C3D159A0A3 /* BeatPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535323137AC887F1262B1969 /* BeatPlayer.swift */; };
+		788F2076C639196219274298 /* OnSongSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC15ECB53B4C7641FAF5905 /* OnSongSync.swift */; };
 		82F960E66714EDD2B1D387A4 /* BeatLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F84BF7B60DA4363EDCFC6CE /* BeatLibraryStore.swift */; };
 		8B8E911D750D2C88BFB32423 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F18C144DA9C30B36411E5FC8 /* LaunchScreen.storyboard */; };
 		9908E34779EBB3433F0A1AAB /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A746321A2AF5B1EB8A163E6 /* AppModel.swift */; };
@@ -24,6 +25,7 @@
 		BE4AF02CE383E9CDC5A185E8 /* MIDIHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5ED99013535799D405AD407 /* MIDIHandler.swift */; };
 		C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A9774CF1858FF858FE7190 /* PayloadUtils.swift */; };
 		CD6D84BCE9E96B7AEDCC0FED /* VoiceCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */; };
+		D7184FACDA82F88A73E94001 /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07D8F7D3E8CD6BADABF3168 /* SyncView.swift */; };
 		D8A801183D431BA34AE4218F /* FavoritesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFE897889DABAAF6D1C48863 /* FavoritesStore.swift */; };
 		DAEEDDC05E219044C2060CB7 /* C1BridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */; };
 		EA9E65E11ADC1DA139745A4A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D568B76A0D9879217511160B /* Assets.xcassets */; };
@@ -46,7 +48,9 @@
 		AEC8DBA3349D0AB5856A376E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B476EF9C5CC8D75E63F5321A /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
 		B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = C1BridgeApp.swift; sourceTree = "<group>"; };
+		BBC15ECB53B4C7641FAF5905 /* OnSongSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnSongSync.swift; sourceTree = "<group>"; };
 		BFBF175B997283A339BFE204 /* BeatSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatSetupView.swift; sourceTree = "<group>"; };
+		C07D8F7D3E8CD6BADABF3168 /* SyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncView.swift; sourceTree = "<group>"; };
 		D568B76A0D9879217511160B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		E535164D5605A92869596A10 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
 		ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandManager.swift; sourceTree = "<group>"; };
@@ -76,11 +80,13 @@
 				E535164D5605A92869596A10 /* Logger.swift */,
 				05633343730386E82BC3C1CB /* LooperEngine.swift */,
 				A5ED99013535799D405AD407 /* MIDIHandler.swift */,
+				BBC15ECB53B4C7641FAF5905 /* OnSongSync.swift */,
 				7FE8CA2CEB793CAAC8D79056 /* PatternLibrary.swift */,
 				35A9774CF1858FF858FE7190 /* PayloadUtils.swift */,
 				B476EF9C5CC8D75E63F5321A /* PresetStore.swift */,
 				08453A95BE07A1EE056792D2 /* SongSetupView.swift */,
 				3B03C074777A053D6BE84C69 /* SuggestedTempoStore.swift */,
+				C07D8F7D3E8CD6BADABF3168 /* SyncView.swift */,
 				ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */,
 			);
 			path = C1Bridge;
@@ -187,11 +193,13 @@
 				B305C9578A361367E5E610E8 /* Logger.swift in Sources */,
 				51390809AEA2A383F34653A8 /* LooperEngine.swift in Sources */,
 				BE4AF02CE383E9CDC5A185E8 /* MIDIHandler.swift in Sources */,
+				788F2076C639196219274298 /* OnSongSync.swift in Sources */,
 				3D58B3BD286903E537172CBA /* PatternLibrary.swift in Sources */,
 				C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */,
 				44039DE5EE6464A6D110F9D3 /* PresetStore.swift in Sources */,
 				B08340F92668C2C73332E36C /* SongSetupView.swift in Sources */,
 				3000A799E76EEE9ABDFE3C86 /* SuggestedTempoStore.swift in Sources */,
+				D7184FACDA82F88A73E94001 /* SyncView.swift in Sources */,
 				CD6D84BCE9E96B7AEDCC0FED /* VoiceCommandManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -205,7 +213,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 70;
+				CURRENT_PROJECT_VERSION = 71;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -228,7 +236,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 70;
+				CURRENT_PROJECT_VERSION = 71;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

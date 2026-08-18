@@ -206,6 +206,26 @@ final class PresetStore: ObservableObject {
         if let data = try? JSONEncoder().encode(presets) {
             UserDefaults.standard.set(data, forKey: defaultsKey)
         }
+        OnSongSyncManager.shared.noteLocalChange()
+    }
+
+    // MARK: - Sync export/import (OnSong song backup)
+
+    func exportForSync() -> [SongPreset] { presets }
+
+    /// Full-replace import from a backup payload. Trigger numbers carry over
+    /// unchanged — they are the permanent OnSong-facing identity of each song
+    /// and must match on every device. Zero-numbered legacy records get the
+    /// same migration as load().
+    func importFromSync(_ incoming: [SongPreset]) {
+        var decoded = incoming
+        var next = (decoded.map(\.triggerNumber).max() ?? 0) + 1
+        for i in decoded.indices where decoded[i].triggerNumber == 0 {
+            decoded[i].triggerNumber = next
+            next += 1
+        }
+        presets = decoded
+        save()
     }
 
     private func load() {

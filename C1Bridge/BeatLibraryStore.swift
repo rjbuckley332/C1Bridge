@@ -104,6 +104,32 @@ final class BeatLibrary: ObservableObject {
         if let data = try? JSONEncoder().encode(beats) {
             UserDefaults.standard.set(data, forKey: defaultsKey)
         }
+        OnSongSyncManager.shared.noteLocalChange()
+    }
+
+    // MARK: - Sync export/import (OnSong song backup)
+
+    func exportForSync() -> [SavedBeat] { beats }
+
+    /// Full-replace import from a backup payload. Beat STRUCTURE (grid hits,
+    /// voices, bpm) syncs; recorded mic-sound audio does NOT ride the payload
+    /// (too big for song text). Beats whose clips are missing on this device
+    /// stay intact but render those hits silently until re-recorded.
+    func importFromSync(_ incoming: [SavedBeat]) {
+        beats = incoming
+        save()
+        var missing: [String] = []
+        for b in beats where b.hits.contains(where: { $0.sampleFile != nil }) {
+            let dir = samplesDir(for: b.id)
+            let complete = b.hits.allSatisfy { hit in
+                guard let f = hit.sampleFile else { return true }
+                return FileManager.default.fileExists(atPath: dir.appendingPathComponent(f).path)
+            }
+            if !complete { missing.append(b.name) }
+        }
+        if !missing.isEmpty {
+            AppModel.shared.addLog("Sync: beat(s) missing their recorded sounds on this device: \(missing.joined(separator: ", ")) — those hits stay silent until re-recorded")
+        }
     }
 
     private func load() {

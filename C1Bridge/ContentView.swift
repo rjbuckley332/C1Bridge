@@ -4,6 +4,7 @@ struct ContentView: View {
     @ObservedObject private var ble = BLEManager.shared
     @ObservedObject private var model = AppModel.shared
     @ObservedObject private var keepAlive = BackgroundAudioManager.shared
+    @ObservedObject private var sync = OnSongSyncManager.shared
     @State private var selectedTab = 0
     
     private var versionText: String {
@@ -41,6 +42,10 @@ struct ContentView: View {
             volumeReferenceView
                 .tabItem { Label("Volume", systemImage: "speaker.wave.3") }
                 .tag(6)
+
+            syncView
+                .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
+                .tag(7)
         }
         .navigationTitle(ble.isConnected ? "C1: Connected" : "C1: Disconnected")
         .navigationBarTitleDisplayMode(.inline)
@@ -65,6 +70,15 @@ struct ContentView: View {
         .onAppear {
             model.startBackgroundServices()
         }
+        .alert("Restore from OnSong?", isPresented: Binding(
+            get: { sync.pendingRestore != nil },
+            set: { if !$0 { sync.dismissRestoreOffer() } }
+        ), presenting: sync.pendingRestore) { _ in
+            Button("Restore", role: .destructive) { sync.confirmRestore() }
+            Button("Cancel", role: .cancel) { sync.dismissRestoreOffer() }
+        } message: { offer in
+            Text("Backup from \(offer.payload.deviceName) — \(offer.payload.exportedAt.formatted(date: .abbreviated, time: .shortened)).\n\n\(offer.payload.presets.count) songs • \(offer.payload.favorites.count) favorites • \(offer.payload.suggestedTempos.count) tempos • \(offer.payload.beats.count) beats\n\nThis REPLACES all local data on this device.")
+        }
     }
 
     // MARK: - Song Setup (voice-first builder)
@@ -75,6 +89,11 @@ struct ContentView: View {
     // MARK: - Beat Setup (stage 2: fretboard-on-screen validation)
     private var beatSetupView: some View {
         BeatSetupView()
+    }
+
+    // MARK: - Sync (OnSong song backup/restore)
+    private var syncView: some View {
+        SyncView()
     }
 
     // MARK: - Activity Log

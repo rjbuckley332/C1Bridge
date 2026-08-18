@@ -66,6 +66,16 @@ final class FavoritesStore: ObservableObject {
         if let data = try? JSONEncoder().encode(favorites) {
             UserDefaults.standard.set(data, forKey: defaultsKey)
         }
+        OnSongSyncManager.shared.noteLocalChange()
+    }
+
+    // MARK: - Sync export/import (OnSong song backup)
+
+    func exportForSync() -> [PatternRef] { favorites }
+
+    func importFromSync(_ incoming: [PatternRef]) {
+        favorites = incoming
+        save()
     }
 
     private func load() {

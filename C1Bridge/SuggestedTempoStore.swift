@@ -28,6 +28,16 @@ final class SuggestedTempoStore: ObservableObject {
 
     private func save() {
         UserDefaults.standard.set(tempos, forKey: defaultsKey)
+        OnSongSyncManager.shared.noteLocalChange()
+    }
+
+    // MARK: - Sync export/import (OnSong song backup)
+
+    func exportForSync() -> [String: Int] { tempos }
+
+    func importFromSync(_ incoming: [String: Int]) {
+        tempos = incoming
+        save()
     }
 
     private func load() {

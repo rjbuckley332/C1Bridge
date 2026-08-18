@@ -15,7 +15,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: ai.reachhigher.C1Bridge
         MARKETING_VERSION: "1.2"
-        CURRENT_PROJECT_VERSION: "70"
+        CURRENT_PROJECT_VERSION: "71"
         SWIFT_EMIT_LOC_STRINGS: YES
         SWIFT_VERSION: "5.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
@@ -53,6 +53,13 @@ targets:
           - bluetooth-central
           - audio
           - fetch
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            localhost:
+              NSExceptionAllowsInsecureHTTPLoads: true
+            127.0.0.1:
+              NSExceptionAllowsInsecureHTTPLoads: true
         CFBundleDisplayName: C1 MIDI Bridge
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
