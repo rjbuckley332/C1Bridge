@@ -1,7 +1,6 @@
 import Foundation
 import CryptoKit
 import UIKit
-import WebKit
 
 /// Everything C1 Bridge knows, encoded into one OnSong song named "C1 Bridge".
 /// OnSong's own library sync carries that song between devices; this manager
@@ -114,8 +113,7 @@ final class OnSongSyncManager: NSObject, ObservableObject {
 
     enum LinkState: Equatable {
         case notLinked
-        case armed              // user tapped Start; waiting for the app to background into OnSong
-        case waitingForApproval // console page loaded; waiting for Rich's approval inside OnSong
+        case linking   // knocking + waiting for approval inside OnSong
         case linked
         case failed(String)
     }
@@ -127,6 +125,7 @@ final class OnSongSyncManager: NSObject, ObservableObject {
     }
 
     @Published private(set) var linkState: LinkState = .notLinked
+    @Published private(set) var linkDetail = ""
     @Published private(set) var isBusy = false
     @Published private(set) var statusMessage = ""
     @Published private(set) var lastBackupAt: Date?
@@ -148,10 +147,15 @@ final class OnSongSyncManager: NSObject, ObservableObject {
     private let kLastSeenRemote = "c1bridge.sync.lastSeenRemote"
 
     private var token: String?
-    private var webView: WKWebView?
     private var linkTask: Task<Void, Never>?
     private var autoBackupTask: Task<Void, Never>?
     private var lastRemoteCheck = Date.distantPast
+
+    /// OnSong Console API developer key, captured from the console web app's own
+    /// auth handshake (2026-08-18 OnSong beta, probe10). Stable across page loads.
+    /// If OnSong ever rotates it, linking fails with "Invalid API Key" — re-capture
+    /// with .tmp/openclaw-spikes/c1bridge-onsong-song-backup/probe10-capture-replay.mjs
+    private static let onSongAPIKey = "GFYcd63b249ee9d38559f133aeb78ec68228bade2bd"
     /// True while a restore is writing into the stores — their save() hooks
     /// must not schedule an immediate echo backup of the data we just pulled.
     private var importInProgress = false
@@ -170,20 +174,11 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         super.init()
         token = defaults.string(forKey: kToken)
         if token != nil { linkState = .linked }
-        NotificationCenter.default.addObserver(self, selector: #selector(appDidEnterBackground),
-                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
     // MARK: - App lifecycle hooks
-
-    @objc private func appDidEnterBackground() {
-        // The link flow only works while OnSong is frontmost — which means WE
-        // are backgrounded. The user armed it from the Sync tab; now run the
-        // headless console-page load (audio keep-alive keeps us running).
-        if linkState == .armed { loadConsolePage() }
-    }
 
     @objc private func appDidBecomeActive() {
         Task { await checkForNewerRemote() }
@@ -191,19 +186,26 @@ final class OnSongSyncManager: NSObject, ObservableObject {
 
     // MARK: - Linking (one-time per device)
 
+    /// Pure-HTTP link: mint a token, then knock with PUT /api/<token>/auth
+    /// carrying OnSong's console API key + our name — the exact handshake the
+    /// console web app performs (captured 2026-08-18, probe10). The knock makes
+    /// OnSong surface its approval prompt; GET /auth flips to 200 once Rich
+    /// approves. No webview, and the loop tolerates OnSong's server being down
+    /// (it only serves while frontmost), so app-switch timing can't race it.
     func beginLinking() {
         guard linkState != .linked else { return }
         linkTask?.cancel()
-        linkState = .armed
-        statusMessage = "Linking armed — switch to OnSong now and keep it on screen."
-        AppModel.shared.addLog("Sync: linking armed — waiting for OnSong to come to the front")
+        linkState = .linking
+        linkDetail = "Contacting OnSong…"
+        statusMessage = ""
+        AppModel.shared.addLog("Sync: link started — knocking on OnSong's console API")
+        runHttpLinkFlow()
     }
 
     func cancelLinking() {
         linkTask?.cancel()
-        webView?.stopLoading()
-        webView = nil
         if linkState != .linked { linkState = token == nil ? .notLinked : .linked }
+        linkDetail = ""
         AppModel.shared.addLog("Sync: linking cancelled")
     }
 
@@ -216,49 +218,49 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         AppModel.shared.addLog("Sync: OnSong unlinked")
     }
 
-    private func loadConsolePage() {
-        linkState = .waitingForApproval
-        let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
-        wv.navigationDelegate = self
-        webView = wv
-        wv.load(URLRequest(url: URL(string: "\(baseURL)/console/")!))
-        AppModel.shared.addLog("Sync: loading OnSong console page headlessly to mint a token…")
-        runLinkFlow()
-    }
-
-    private func runLinkFlow() {
-        linkTask?.cancel()
+    private func runHttpLinkFlow() {
         linkTask = Task { [weak self] in
             guard let self else { return }
-            // Phase 1: wait for the console page JS to mint the token cookie (60s).
-            var minted: String? = nil
-            for _ in 0..<60 {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let candidate = UUID().uuidString.lowercased()
+            let deadline = Date().addingTimeInterval(180)
+            var knockAccepted = false
+            while Date() < deadline {
                 if Task.isCancelled { return }
-                let cookies: [HTTPCookie] = await withCheckedContinuation { cont in
-                    WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cont.resume(returning: $0) }
+                // The knock — keeps re-firing like the console page does, both to
+                // survive the server coming up late and to re-surface the prompt.
+                do {
+                    let body = try JSONSerialization.data(withJSONObject:
+                        ["api_key": Self.onSongAPIKey, "name": "C1 Bridge"])
+                    let (status, data) = try await self.api("PUT", "\(candidate)/auth",
+                                                            body: body, contentType: "application/json",
+                                                            timeout: 4)
+                    if status == 200 {
+                        if !knockAccepted {
+                            knockAccepted = true
+                            self.linkDetail = "OnSong answered — approve \"C1 Bridge\" in OnSong now."
+                            AppModel.shared.addLog("Sync: knock accepted — approve \"C1 Bridge\" inside OnSong")
+                        }
+                    } else {
+                        let text = String(data: data, encoding: .utf8) ?? ""
+                        if text.contains("Invalid API Key") {
+                            self.failLink("OnSong rejected its embedded API key — an OnSong update may have rotated it. Tell Alfred; re-capture takes minutes.")
+                            return
+                        }
+                        // Any other status: keep knocking.
+                    }
+                } catch {
+                    if !knockAccepted { self.linkDetail = "Waiting for OnSong to come to the front…" }
                 }
-                if let c = cookies.first(where: { $0.name == "OnSongConnectToken" }) {
-                    minted = c.value
-                    break
-                }
-            }
-            guard let minted else {
-                self.failLink("No token appeared — is OnSong open and on screen?")
-                return
-            }
-            AppModel.shared.addLog("Sync: token minted — approve \"C1Bridge\" inside OnSong")
-            // Phase 2: wait for Rich's approval inside OnSong (3 min).
-            for _ in 0..<90 {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
                 if Task.isCancelled { return }
-                if let (status, _) = try? await self.api("GET", "\(minted)/auth", timeout: 4),
+                // Approval check.
+                if let (status, _) = try? await self.api("GET", "\(candidate)/auth", timeout: 4),
                    status == 200 {
-                    self.linkSucceeded(token: minted)
+                    self.linkSucceeded(token: candidate)
                     return
                 }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
-            self.failLink("Approval timed out — approve the connection inside OnSong, then try again.")
+            self.failLink("Timed out — keep OnSong on screen and approve \"C1 Bridge\" when it appears, then try again.")
         }
     }
 
@@ -266,8 +268,8 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         token = newToken
         defaults.set(newToken, forKey: kToken)
         linkState = .linked
+        linkDetail = ""
         statusMessage = "OnSong linked ✅"
-        webView = nil
         AppModel.shared.addLog("Sync: OnSong linked ✅")
         // Offer any newer backup that may already be sitting in OnSong.
         Task { await checkForNewerRemote(force: true) }
@@ -275,8 +277,8 @@ final class OnSongSyncManager: NSObject, ObservableObject {
 
     private func failLink(_ message: String) {
         linkState = .failed(message)
+        linkDetail = ""
         statusMessage = message
-        webView = nil
         AppModel.shared.addLog("Sync: link failed — \(message)")
     }
 
@@ -494,15 +496,5 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         defaults.removeObject(forKey: kToken)
         token = nil
         linkState = .notLinked
-    }
-}
-
-// MARK: - WKNavigationDelegate
-
-extension OnSongSyncManager: WKNavigationDelegate {
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if linkState == .waitingForApproval || linkState == .armed {
-            failLink("Couldn't reach OnSong at 127.0.0.1 — make sure OnSong is open and on screen, then try again.")
-        }
     }
 }

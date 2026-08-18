@@ -72,7 +72,7 @@ struct SyncView: View {
     private var statusColor: Color {
         switch sync.linkState {
         case .linked: return .green
-        case .armed, .waitingForApproval: return .orange
+        case .linking: return .orange
         case .failed: return .red
         case .notLinked: return .gray
         }
@@ -81,8 +81,7 @@ struct SyncView: View {
     private var statusText: String {
         switch sync.linkState {
         case .linked: return "Linked to OnSong"
-        case .armed: return "Linking armed — switch to OnSong"
-        case .waitingForApproval: return "Waiting for approval in OnSong…"
+        case .linking: return sync.linkDetail.isEmpty ? "Linking…" : sync.linkDetail
         case .failed(let msg): return "Link failed: \(msg)"
         case .notLinked: return "Not linked"
         }
@@ -109,16 +108,16 @@ private struct LinkSheet: View {
                     Button("Done") { isPresented = false }
                         .buttonStyle(.borderedProminent)
 
-                case .armed, .waitingForApproval:
+                case .linking:
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text(sync.linkState == .armed ? "Armed — switch to OnSong now" : "Contacting OnSong…")
+                        Text(sync.linkDetail.isEmpty ? "Contacting OnSong…" : sync.linkDetail)
                             .font(.headline)
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("1. Switch to OnSong (app switcher) — keep C1 Bridge running.")
                         Text("2. Keep OnSong on screen.")
-                        Text("3. When OnSong asks, approve this device.")
+                        Text("3. When OnSong asks, approve **C1 Bridge**.")
                         Text("4. Come back here.")
                     }
                     .font(.subheadline)
@@ -141,11 +140,11 @@ private struct LinkSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("1. Tap **Start Linking** below.")
                         Text("2. Switch to OnSong (app switcher) — keep C1 Bridge running.")
-                        Text("3. Keep OnSong on screen; approve the connection when it asks.")
+                        Text("3. Keep OnSong on screen; approve **C1 Bridge** when it asks.")
                         Text("4. Come back here — ✅ means linked.")
                     }
                     .font(.subheadline)
-                    Text("One-time per device. OnSong only accepts links while it's on screen.")
+                    Text("One-time per device. OnSong only accepts links while it's on screen — take your time, the link keeps knocking for 3 minutes.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button("Start Linking") { sync.beginLinking() }
