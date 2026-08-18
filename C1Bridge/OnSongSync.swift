@@ -45,8 +45,8 @@ enum SyncError: LocalizedError {
         case .notLinked:        return "OnSong isn't linked yet — link it from the Sync tab."
         case .unreachable:      return "Can't reach OnSong at 127.0.0.1 — OnSong must be open and on screen."
         case .tokenRejected:    return "OnSong no longer recognizes this device — link again from the Sync tab."
-        case .noPayloadSong:    return "No \"C1 Bridge\" song found in the OnSong library yet."
-        case .noPayload:        return "The \"C1 Bridge\" song doesn't contain a backup payload."
+        case .noPayloadSong:    return "No \"C1 Bridge\" song found in the OnSong library yet — run Back Up Now on your other device first."
+        case .noPayload:        return "Found a C1 Bridge song but its payload didn't verify — run Back Up Now on the other device to rewrite it."
         case .checksumMismatch: return "Backup payload failed its checksum — the song text was altered."
         case .badPayload:       return "Backup payload couldn't be decoded."
         case .http(let c, let w): return "OnSong API error \(c) (\(w))"
@@ -69,7 +69,10 @@ enum PayloadEnvelope {
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-        var lines = ["C1BRIDGE-BEGIN v1 sha256=\(sha256Hex(b64))"]
+        // The title line matters: OnSong re-derives the song's title from the
+        // content's first line. Without this, the song gets RENAMED to the
+        // "C1BRIDGE-BEGIN…" line (observed live on the iPad, 2026-08-18).
+        var lines = ["C1 Bridge", "C1 Bridge settings backup — do not edit", "", "C1BRIDGE-BEGIN v1 sha256=\(sha256Hex(b64))"]
         var i = b64.startIndex
         while i < b64.endIndex {
             let j = b64.index(i, offsetBy: 76, limitedBy: b64.endIndex) ?? b64.endIndex
@@ -150,6 +153,8 @@ final class OnSongSyncManager: NSObject, ObservableObject {
     private var linkTask: Task<Void, Never>?
     private var autoBackupTask: Task<Void, Never>?
     private var lastRemoteCheck = Date.distantPast
+    private var pendingBackup = false
+    private var autoRetryCount = 0
 
     /// OnSong Console API developer key, captured from the console web app's own
     /// auth handshake (2026-08-18 OnSong beta, probe10). Stable across page loads.
@@ -174,6 +179,8 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         super.init()
         token = defaults.string(forKey: kToken)
         if token != nil { linkState = .linked }
+        NotificationCenter.default.addObserver(self, selector: #selector(appDidEnterBackground),
+                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
     }
@@ -182,6 +189,17 @@ final class OnSongSyncManager: NSObject, ObservableObject {
 
     @objc private func appDidBecomeActive() {
         Task { await checkForNewerRemote() }
+    }
+
+    @objc private func appDidEnterBackground() {
+        // OnSong is very often the app coming forward right now — the perfect
+        // moment to flush a pending backup and to check for a newer remote one.
+        // Both tolerate the server still spinning up.
+        if pendingBackup {
+            AppModel.shared.addLog("Sync: backgrounding with a pending backup — flushing")
+            Task { await backupNow(manual: false) }
+        }
+        Task { await checkForNewerRemote(force: true, waitSeconds: 12) }
     }
 
     // MARK: - Linking (one-time per device)
@@ -285,15 +303,39 @@ final class OnSongSyncManager: NSObject, ObservableObject {
     // MARK: - Backup
 
     /// Stores call this from their save(). Debounced: 20s after the last change
-    /// we push one backup. Silent when OnSong isn't reachable.
+    /// we push one backup. If OnSong isn't reachable (it only serves while
+    /// frontmost), the backup stays pending and retries — and backgrounding
+    /// C1 Bridge flushes it, since OnSong is usually the app coming forward.
     func noteLocalChange() {
         guard autoBackupEnabled, !importInProgress, linkState == .linked else { return }
+        pendingBackup = true
         autoBackupTask?.cancel()
         autoBackupTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 20_000_000_000)
             guard !Task.isCancelled else { return }
             await self?.backupNow(manual: false)
         }
+    }
+
+    /// Waits for OnSong's console server (alive only while OnSong is frontmost).
+    /// Polls /state every 1.5s up to maxSeconds. Returns false on timeout.
+    /// A rejected token unlinks immediately rather than burning the window.
+    private func waitForOnSong(token: String, maxSeconds: Double) async -> Bool {
+        let deadline = Date().addingTimeInterval(maxSeconds)
+        while Date() < deadline {
+            if Task.isCancelled { return false }
+            do {
+                let (status, data) = try await api("GET", "\(token)/state", timeout: 3)
+                if status == 200 { return true }
+                try throwIfTokenRejected(status, data)
+            } catch SyncError.tokenRejected {
+                handleTokenRejected()
+                statusMessage = SyncError.tokenRejected.localizedDescription
+                return false
+            } catch { /* unreachable — keep waiting */ }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+        return false
     }
 
     @discardableResult
@@ -305,7 +347,28 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         }
         isBusy = true
         defer { isBusy = false }
-        if manual { statusMessage = "Backing up…" }
+        // Manual taps happen while C1 Bridge is frontmost — i.e. exactly when
+        // OnSong's server is DOWN. Give the user a window to switch over.
+        if manual { statusMessage = "Switch to OnSong now — backing up…" }
+        guard await waitForOnSong(token: token, maxSeconds: manual ? 45 : 6) else {
+            if manual {
+                statusMessage = "Backup failed: OnSong must be open and on screen. Tap Back Up Now, then switch to OnSong."
+                AppModel.shared.addLog("Sync: manual backup failed — OnSong unreachable")
+            } else {
+                // Silent auto-backup: stay pending, retry up to 3 times.
+                if pendingBackup, autoRetryCount < 3 {
+                    autoRetryCount += 1
+                    AppModel.shared.addLog("Sync: OnSong unreachable — backup stays pending (retry \(autoRetryCount)/3 in 90s)")
+                    autoBackupTask?.cancel()
+                    autoBackupTask = Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: 90_000_000_000)
+                        guard !Task.isCancelled else { return }
+                        await self?.backupNow(manual: false)
+                    }
+                }
+            }
+            return false
+        }
         do {
             let payload = buildPayload()
             let text = try PayloadEnvelope.encode(payload)
@@ -315,6 +378,8 @@ final class OnSongSyncManager: NSObject, ObservableObject {
             defaults.set(lastBackupAt, forKey: kLastBackup)
             // Our own push must never trigger a "newer remote backup" prompt on us.
             defaults.set(payload.exportedAt, forKey: kLastSeenRemote)
+            pendingBackup = false
+            autoRetryCount = 0
             let msg = "Backup complete — \(payload.presets.count) songs, \(payload.favorites.count) favorites, \(payload.suggestedTempos.count) tempos, \(payload.beats.count) beats"
             if manual { statusMessage = msg }
             AppModel.shared.addLog("Sync: \(msg)")
@@ -338,13 +403,20 @@ final class OnSongSyncManager: NSObject, ObservableObject {
 
     // MARK: - Restore
 
-    /// Manual "Restore from OnSong…" — always fetches and asks for confirmation.
+    /// Manual "Restore from OnSong…" — fetches (patiently: the tap happens while
+    /// C1 Bridge is frontmost, i.e. while OnSong's server is down) then asks
+    /// for confirmation. The alert will be waiting when the user comes back.
     func restoreFromOnSong() async {
         guard !isBusy else { return }
         guard let token else { statusMessage = SyncError.notLinked.localizedDescription; return }
         isBusy = true
         defer { isBusy = false }
-        statusMessage = "Fetching backup from OnSong…"
+        statusMessage = "Switch to OnSong now — fetching the backup…"
+        guard await waitForOnSong(token: token, maxSeconds: 45) else {
+            statusMessage = "Restore failed: OnSong must be open and on screen. Tap Restore, then switch to OnSong."
+            AppModel.shared.addLog("Sync: manual restore failed — OnSong unreachable")
+            return
+        }
         do {
             guard let (songID, text) = try await fetchPayloadSong(token: token) else {
                 throw SyncError.noPayloadSong
@@ -357,12 +429,15 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         }
     }
 
-    /// Automatic check (app foreground / fresh link): prompt only when the
-    /// payload song holds a backup we haven't seen before.
-    private func checkForNewerRemote(force: Bool = false) async {
+    /// Automatic check (app foreground / backgrounding into OnSong / fresh link):
+    /// prompt only when the payload song holds a backup we haven't seen before.
+    private func checkForNewerRemote(force: Bool = false, waitSeconds: Double = 0) async {
         guard linkState == .linked, let token, !isBusy, pendingRestore == nil else { return }
         if !force, Date().timeIntervalSince(lastRemoteCheck) < 60 { return }
         lastRemoteCheck = Date()
+        if waitSeconds > 0 {
+            guard await waitForOnSong(token: token, maxSeconds: waitSeconds) else { return }
+        }
         do {
             guard let (songID, text) = try await fetchPayloadSong(token: token) else { return }
             let payload = try PayloadEnvelope.decode(text)
@@ -434,9 +509,14 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         guard status == 200 else { throw SyncError.http(status, "song list") }
         let obj = try JSONSerialization.jsonObject(with: data)
         let results = (obj as? [String: Any])?["results"] as? [[String: Any]] ?? []
-        for r in results where ((r["title"] as? String) ?? "")
-            .caseInsensitiveCompare(payloadSongTitle) == .orderedSame {
-            if let id = songID(from: r) { return id }
+        for r in results {
+            let t = (r["title"] as? String) ?? ""
+            // Match the intended title, OR a title mangled into the payload's
+            // BEGIN line (OnSong re-derives titles from content first lines —
+            // happened live on the iPad before the payload carried a title line).
+            if t.caseInsensitiveCompare(payloadSongTitle) == .orderedSame || t.hasPrefix("C1BRIDGE-BEGIN") {
+                if let id = songID(from: r) { return id }
+            }
         }
         return nil
     }
