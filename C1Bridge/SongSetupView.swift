@@ -317,14 +317,16 @@ struct SongSetupView: View {
         if let k = voice.keyLabel, let kp = voice.keyProgram {
             lines.append("Key \(k) — Ch 7 · PC \(kp)")
         }
-        if let t = voice.tempoBPM {
-            lines.append("\(t) BPM — \(MIDIHandler.tempoMidiLabel(bpm: t))")
-        }
         if let d = voice.drumVol {
             lines.append("Drums \(d)% — Ch 8 · PC \(d + 1)")
         }
         if let b = voice.bassVol {
             lines.append("Bass \(b)% — Ch 9 · PC \(b + 1)")
+        }
+        // Tempo is listed LAST because it is SENT last (build 75): the key
+        // commit wipes any tempo that lands before it on the C1.
+        if let t = voice.tempoBPM {
+            lines.append("\(t) BPM — \(MIDIHandler.tempoMidiLabel(bpm: t)) (sent last)")
         }
         if voice.beatInRecipe {
             if let cb = voice.customBeatName {

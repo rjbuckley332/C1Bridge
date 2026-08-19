@@ -133,10 +133,13 @@ final class PresetStore: ObservableObject {
         apply(preset)
     }
 
-    /// Sends every stored command to the C1. The universal tempo rule applies
-    /// here too: each pattern select is answered with the preset's tempo (when
-    /// it has one), sent after the C1 settles from loading the pattern's own
-    /// default tempo. The tempo field follows so the UI stays truthful.
+    /// Sends every stored command to the C1. TWO tempo rules apply here:
+    /// (1) the universal tempo rule — each pattern select is answered with the
+    /// preset's tempo after the C1 settles from loading the pattern's own
+    /// default; (2) TEMPO GOES LAST (Rich, build 75 — learned the hard way):
+    /// the key select's Commit payload reloads C1 state and wipes any tempo
+    /// sent before it, so the preset's tempo closes the recipe and nothing
+    /// follows it on the wire. The tempo field follows so the UI stays truthful.
     func apply(_ preset: SongPreset) {
         AppModel.shared.addLog("Applying preset \"\(preset.name)\"")
         if let bpm = preset.tempoBPM { VoiceCommandManager.shared.notePresetTempo(bpm) }
@@ -153,18 +156,21 @@ final class PresetStore: ObservableObject {
                 MIDIHandler.trigger(channel: 7, program: key)
                 try? await Task.sleep(nanoseconds: 120_000_000)
             }
-            // A preset with no patterns still gets its tempo — there was no
-            // pattern select to answer, so send it on its own.
-            if preset.patterns.isEmpty, let bpm = preset.tempoBPM {
-                MIDIHandler.triggerTempo(bpm: bpm)
-                try? await Task.sleep(nanoseconds: 120_000_000)
-            }
             if let dv = preset.drumVol {
                 MIDIHandler.trigger(channel: 8, program: dv + 1)
                 try? await Task.sleep(nanoseconds: 120_000_000)
             }
             if let bv = preset.bassVol {
                 MIDIHandler.trigger(channel: 9, program: bv + 1)
+                try? await Task.sleep(nanoseconds: 120_000_000)
+            }
+            // Tempo is the LAST thing sent to the C1. The key commit gets the
+            // same 250ms settle window a pattern select does, then the tempo
+            // lands and nothing after it can wipe it. Covers the no-patterns
+            // case too (the old standalone tempo send folded into this one).
+            if let bpm = preset.tempoBPM {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                MIDIHandler.triggerTempo(bpm: bpm)
             }
             // Beat rides the recipe: starts after every send so the preset's
             // tempo is already banked; a playing beat was already retempo'd by

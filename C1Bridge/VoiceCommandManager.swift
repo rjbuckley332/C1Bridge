@@ -1027,6 +1027,16 @@ final class VoiceCommandManager: ObservableObject {
         keyLabel = label
         keyProgram = program
         MIDIHandler.trigger(channel: 7, program: program)
+        // Tempo goes last (Rich, build 75): the key select's Commit payload
+        // reloads C1 state and wipes any tempo sent before it, so during
+        // recipe creation the field's tempo answers the key exactly the way
+        // it answers a pattern select — 250ms later, nothing after it.
+        if let bpm = tempoBPM {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                MIDIHandler.triggerTempo(bpm: bpm)
+            }
+        }
         statusLine = "Key: \(label) — Ch 7 · PC \(program)"
         haptic()
     }
