@@ -219,13 +219,15 @@ final class StrumPlayer: ObservableObject {
     // MARK: - Rendering
 
     private struct StrumHit { let slot: Int; let gain: Float; let up: Bool }
-    /// Grid B (Rich 08-19): slots {1,3,4,5,7} 1-based, strokes D·DUD·D·.
+    /// The grid (Rich 08-19, ear-picked demo J1): "D rest Duu" — D on 1,
+    /// rest on 2, D on 3, u on the-and-of-3, u on 4 = slots {1,5,6,7}
+    /// 1-based. Flat dynamics (his 16:16 note: first down strong, the rest
+    /// must hold up — no deep accent cliff).
     private let grid: [StrumHit] = [
         .init(slot: 0, gain: 1.00, up: false),
-        .init(slot: 2, gain: 0.80, up: false),
-        .init(slot: 3, gain: 0.62, up: true),
-        .init(slot: 4, gain: 0.90, up: false),
-        .init(slot: 6, gain: 0.70, up: false),
+        .init(slot: 4, gain: 0.95, up: false),
+        .init(slot: 5, gain: 0.90, up: true),
+        .init(slot: 6, gain: 0.85, up: true),
     ]
 
     /// Hits from recent bars whose tails must ring into the next render
@@ -250,7 +252,7 @@ final class StrumPlayer: ObservableObject {
         var t = 0.0
         for (i, m) in use.enumerated() {
             guard let nb = notePool[m], let nd = nb.floatChannelData else { continue }
-            let g = (up ? baseGains[i] * 0.62 : baseGains[i]) * Float.random(in: 0.95...1.05)
+            let g = (up ? baseGains[i] * 0.9 : baseGains[i]) * Float.random(in: 0.95...1.05)
             let start = Int((t + Double.random(in: -0.0012...0.0012)) * Self.sr)
             let n = min(Int(nb.frameLength), length - start)
             let src = nd[0]
