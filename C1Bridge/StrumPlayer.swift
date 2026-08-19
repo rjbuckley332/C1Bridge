@@ -131,26 +131,49 @@ final class StrumPlayer: ObservableObject {
         }
     }
 
-    /// Front-paddle toggle (BLEManager byte[5] rise, beat pad not held,
-    /// velocity != 0x40). No-op unless a strum recipe armed it. Looper
-    /// test/record mode owns the paddle while it's active.
-    func paddleToggle(guitarBpm: Int) {
+    /// Front-paddle one-shot (BLEManager byte[5] rise, beat pad not held,
+    /// velocity != 0x40). Build 84 — Rich 17:38: "the strum is constantly
+    /// playing on its own" — the LOOP was wrong for the melodic slot. The
+    /// strum acts like the C1's own pattern: each hit plays ONE cycle of the
+    /// grid in the current chord, then it rings out. Drums latch/loop; the
+    /// melodic strum speaks per hit ("a different function than drum").
+    /// No-op unless a strum recipe armed it; the looper owns the paddle in
+    /// test/record mode; a running loop preview keeps the paddle to itself.
+    func paddleStrum(guitarBpm: Int) {
         DispatchQueue.main.async {
-            guard self.armed else { return }
+            guard self.armed, !self.isPlaying else { return }
             if LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming { return }
-            if self.isPlaying {
-                self.stopInternal()
-                AppModel.shared.addLog("Paddle toggle — strum OFF")
-            } else {
-                let bpm = MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : guitarBpm
-                AppModel.shared.addLog("Paddle toggle — strum ON @ \(bpm) BPM")
-                self.start(bpm: bpm)
-            }
+            let bpm = MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : guitarBpm
+            self.playOneShot(bpm: bpm)
         }
     }
 
-    /// Start the layer at `bpm`. Restarts in place on tempo change (the
-    /// live-follow hook rides that). Chord starts at the current fret/degree.
+    /// One grid cycle + natural ring-out, fired NOW (hit = sound, like the
+    /// C1's own response). A new hit cuts the previous ring — re-strumming.
+    private var oneShotActive = false
+    private func playOneShot(bpm: Int) {
+        guard !notePool.isEmpty else { return }
+        installGraphIfNeeded()
+        keyRootPC = MIDIHandler.currentKeyRootPC
+        updateChordName()
+        guard let buf = renderOneShot(bpm: max(40, min(220, bpm))) else { return }
+        do {
+            if !engine.isRunning { try engine.start() }
+        } catch {
+            AppModel.shared.addLog("Strum engine start failed: \(error.localizedDescription)")
+            return
+        }
+        player.stop()
+        player.scheduleBuffer(buf, at: nil, options: []) { [weak self] in
+            DispatchQueue.main.async { self?.oneShotActive = false }
+        }
+        player.play()
+        oneShotActive = true
+        AppModel.shared.addLog("Paddle strum — \(chordName) @ \(bpm) BPM")
+    }
+
+    /// Start the layer at `bpm` (LOOP preview — the Song Setup row). Restarts
+    /// in place on tempo change (the live-follow hook rides that).
     func start(bpm: Int) {
         DispatchQueue.main.async {
             let clamped = max(40, min(220, bpm))
@@ -300,6 +323,41 @@ final class StrumPlayer: ObservableObject {
         return buf
     }
 
+    /// Render a ONE-SHOT cycle: one bar of the grid in the current chord
+    /// plus ~2s of ring-out tail, takes placed whole (nothing cut at the bar
+    /// line — the next hit's preempt is what stops the ring).
+    private func renderOneShot(bpm: Int) -> AVAudioPCMBuffer? {
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: Self.sr, channels: 1) else { return nil }
+        let eighthFrames = Int((60.0 / Double(bpm) / 2.0) * Self.sr)
+        let barFrames = eighthFrames * 8
+        let totalFrames = barFrames + Int(2.0 * Self.sr)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(totalFrames)),
+              let data = buffer.floatChannelData else { return nil }
+        buffer.frameLength = AVAudioFrameCount(totalFrames)
+        let out = data[0]
+        memset(out, 0, totalFrames * MemoryLayout<Float>.size)
+        let chord = voiceChord()
+        guard let downTake = assembleStrum(notes: chord.notes, up: false),
+              let upTake = assembleStrum(notes: chord.notes, up: true),
+              let dd = downTake.floatChannelData, let ud = upTake.floatChannelData else { return nil }
+        for hit in grid {
+            let take = hit.up ? upTake : downTake
+            let src = (hit.up ? ud : dd)[0]
+            let jitterSec = 0.004 + Double.random(in: -0.007...0.007)
+            let gain = hit.gain * Float.random(in: 0.94...1.06)
+            let start = hit.slot * eighthFrames + Int(jitterSec * Self.sr)
+            let n = min(Int(take.frameLength), totalFrames - start)
+            for i in 0..<max(0, n) { out[start + i] += src[i] * gain }
+        }
+        var peak: Float = 0
+        vDSP_maxmgv(out, 1, &peak, vDSP_Length(totalFrames))
+        if peak > 0.92 {
+            var scale = 0.92 / peak
+            vDSP_vsmul(out, 1, &scale, out, 1, vDSP_Length(totalFrames))
+        }
+        return buffer
+    }
+
     /// Render one bar: current chord on grid B with accents and timing human,
     /// plus the lookback tails of recent hits still ringing.
     private func renderBar(bpm: Int) -> AVAudioPCMBuffer? {
@@ -366,6 +424,7 @@ final class StrumPlayer: ObservableObject {
     private func stopInternal() {
         player.stop()
         isPlaying = false
+        oneShotActive = false
         currentBPM = 0
         barsQueuedAhead = 0
         tailHistory = []

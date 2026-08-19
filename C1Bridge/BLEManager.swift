@@ -483,12 +483,10 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                         }
                     }
                 } else {
-                    // STRUM PADDLE TOGGLE (build 83 — Rich: "The strum plays
-                    // only when I toggle the front paddle. It takes the place
-                    // of sweep cutting."): beat pad NOT held and the pulse
-                    // isn't a mute-pad 0x40 → toggle the strum layer. Only
-                    // acts when a strum recipe armed it (StrumPlayer guards).
-                    StrumPlayer.shared.paddleToggle(guitarBpm: Int(bytes[7]))
+                    // STRUM PADDLE HIT (build 84): beat pad NOT held and the
+                    // pulse isn't a mute-pad 0x40 → play ONE strum cycle in
+                    // the current chord. Only when a strum recipe armed it.
+                    StrumPlayer.shared.paddleStrum(guitarBpm: Int(bytes[7]))
                 }
                 lastByte5RiseAt = now
             }
