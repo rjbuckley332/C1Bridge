@@ -61,10 +61,12 @@ final class StrumPlayer: ObservableObject {
         let tones = [rootPC, (rootPC + t3) % 12, (rootPC + t5) % 12]
         let suffix = t3 == 4 ? "" : (t5 == 6 ? "°" : "m")
         let name = Self.pcNames[rootPC] + suffix
-        // Root in the bass: lowest root-pc note at or above 36 (C2).
-        var bass = 36 + ((rootPC - 0) % 12)
-        while bass > 43 { bass -= 12 }
-        while bass < 35 { bass += 12 }
+        // Root in the bass: 36 + rootPC lands in 36…47 (C2…B2), always inside
+        // the note pool (35–67). Build 88 crash fix: the old clamp loops
+        // (while >43 −12, while <35 +12) chased each other forever for keys
+        // G# A A# B (44→32→44…) — an infinite loop on the main thread = the
+        // "occasional crash" (key-dependent, which is why it looked random).
+        let bass = 36 + rootPC
         var notes = [bass]
         let openStrings = [45, 50, 55, 59, 64] // A2 D3 G3 B3 E4
         var prevPC = bass % 12
@@ -379,7 +381,9 @@ final class StrumPlayer: ObservableObject {
         for (i, m) in use.enumerated() {
             guard let nb = notePool[m], let nd = nb.floatChannelData else { continue }
             let g = (up ? baseGains[i] * 0.9 : baseGains[i]) * Float.random(in: 0.95...1.05)
-            let start = Int((t + Double.random(in: -0.0012...0.0012)) * Self.sr)
+            // Build 88 crash fix: jitter can push the first string's start
+            // NEGATIVE — out[-52] = EXC_BAD_ACCESS. Clamp everywhere.
+            let start = max(0, Int((t + Double.random(in: -0.0012...0.0012)) * Self.sr))
             let n = min(Int(nb.frameLength), length - start)
             let src = nd[0]
             for f in 0..<max(0, n) { out[start + f] += src[f] * g }
@@ -410,7 +414,7 @@ final class StrumPlayer: ObservableObject {
             let src = (hit.up ? ud : dd)[0]
             let jitterSec = 0.004 + Double.random(in: -0.007...0.007)
             let gain = hit.gain * Float.random(in: 0.94...1.06)
-            let start = hit.slot * eighthFrames + Int(jitterSec * Self.sr)
+            let start = max(0, hit.slot * eighthFrames + Int(jitterSec * Self.sr))
             let n = min(Int(take.frameLength), totalFrames - start)
             for i in 0..<max(0, n) { out[start + i] += src[i] * gain }
         }
@@ -460,7 +464,7 @@ final class StrumPlayer: ObservableObject {
             let src = (hit.up ? ud : dd)[0]
             let jitterSec = 0.004 + Double.random(in: -0.007...0.007)
             let gain = hit.gain * Float.random(in: 0.94...1.06)
-            let start = hit.slot * eighthFrames + Int(jitterSec * Self.sr)
+            let start = max(0, hit.slot * eighthFrames + Int(jitterSec * Self.sr))
             let n = min(Int(take.frameLength), barFrames - start)
             for i in 0..<max(0, n) { out[start + i] += src[i] * gain }
             // remember where the NEXT bar resumes inside this take
