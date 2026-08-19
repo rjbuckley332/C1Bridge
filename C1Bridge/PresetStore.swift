@@ -205,7 +205,7 @@ final class PresetStore: ObservableObject {
             // recipe ARMS the front-paddle toggle — no auto-start ("plays
             // only when I toggle"); any other recipe disarms it (and a
             // playing layer stops with the song change).
-            StrumPlayer.shared.setArmed(preset.strumEnabled)
+            StrumPlayer.shared.setArmed(preset.strumEnabled, bpm: preset.tempoBPM)
         }
     }
 

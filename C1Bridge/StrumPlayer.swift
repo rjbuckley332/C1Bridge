@@ -119,16 +119,42 @@ final class StrumPlayer: ObservableObject {
     /// MELODIC slot (replacing the C1's pattern on that paddle), unlike the
     /// drums, which are a separate layer with their own gesture.
     @Published private(set) var armed = false
+    /// The recipe's tempo, captured at arm time — one-shots play at THE
+    /// RECIPE's tempo (Rich 17:56: "not playing at the tempo of the recipe").
+    private var armedBpm: Int?
+    /// Pre-rendered one-shot for the current chord/tempo (Rich 17:56: "high
+    /// latency between the paddle press and it coming out") — the hit just
+    /// schedules this; rendering happens at arm/fret/key/tempo moments.
+    private var pendingOneShot: AVAudioPCMBuffer?
+    private var pendingBpm = 0
 
     /// Preset fire sets the arming. Strum recipes: armed, waiting for the
     /// paddle (no auto-start — "plays only when I toggle"). Non-strum
     /// recipes: disarmed, and a playing layer stops with the song change.
-    func setArmed(_ on: Bool) {
+    func setArmed(_ on: Bool, bpm: Int? = nil) {
         DispatchQueue.main.async {
             self.armed = on
-            if !on, self.isPlaying { self.stopInternal() }
-            AppModel.shared.addLog(on ? "Strum armed — front paddle toggles it" : "Strum disarmed")
+            self.armedBpm = bpm
+            if !on {
+                self.stopInternal()
+                self.pendingOneShot = nil
+            } else {
+                // Pre-start the engine + pre-render so the FIRST hit is instant.
+                self.installGraphIfNeeded()
+                if !self.engine.isRunning { try? self.engine.start() }
+                self.keyRootPC = MIDIHandler.currentKeyRootPC
+                self.updateChordName()
+                self.prerenderOneShot()
+            }
+            AppModel.shared.addLog(on ? "Strum armed — paddle plays it per hit" : "Strum disarmed")
         }
+    }
+
+    /// Pre-render the one-shot for the current chord at the recipe tempo.
+    private func prerenderOneShot(bpm: Int? = nil) {
+        let b = max(40, min(220, bpm ?? armedBpm ?? MIDIHandler.lastSentTempoBPM))
+        pendingOneShot = renderOneShot(bpm: b)
+        pendingBpm = b
     }
 
     /// Front-paddle one-shot (BLEManager byte[5] rise, beat pad not held,
@@ -143,8 +169,22 @@ final class StrumPlayer: ObservableObject {
         DispatchQueue.main.async {
             guard self.armed, !self.isPlaying else { return }
             if LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming { return }
-            let bpm = MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : guitarBpm
-            self.playOneShot(bpm: bpm)
+            let bpm = self.armedBpm ?? (MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : guitarBpm)
+            // Instant path: schedule the pre-rendered buffer (near-zero hit
+            // latency). Re-render inline only if the tempo moved since.
+            if self.pendingOneShot == nil || self.pendingBpm != bpm {
+                self.prerenderOneShot(bpm: bpm)
+            }
+            guard let buf = self.pendingOneShot else { return }
+            self.player.stop()
+            self.player.scheduleBuffer(buf, at: nil, options: []) { [weak self] in
+                DispatchQueue.main.async { self?.oneShotActive = false }
+            }
+            self.player.play()
+            self.oneShotActive = true
+            AppModel.shared.addLog("Paddle strum — \(self.chordName) @ \(bpm) BPM")
+            // Fresh jitter/rotation pre-rendered for the NEXT hit.
+            self.prerenderOneShot(bpm: bpm)
         }
     }
 
@@ -220,6 +260,7 @@ final class StrumPlayer: ObservableObject {
             self.updateChordName()
             AppModel.shared.addLog("Strum chord → \(self.chordName) (pos \(deg))")
             self.swapChordIfPlaying()
+            if self.armed && !self.isPlaying { self.prerenderOneShot() }
         }
     }
 
@@ -233,6 +274,7 @@ final class StrumPlayer: ObservableObject {
             self.updateChordName()
             AppModel.shared.addLog("Strum key change — now \(self.chordName)")
             self.swapChordIfPlaying()
+            if self.armed && !self.isPlaying { self.prerenderOneShot() }
         }
     }
 
@@ -307,7 +349,7 @@ final class StrumPlayer: ObservableObject {
         buf.frameLength = AVAudioFrameCount(length)
         let out = data[0]
         memset(out, 0, length * MemoryLayout<Float>.size)
-        let baseGains: [Float] = [1.0, 0.98, 0.95, 0.9, 0.85, 0.8]
+        let baseGains: [Float] = [0.70, 0.80, 0.95, 1.00, 0.95, 0.90] // treble-forward: the bass root must not read as a "bassline" (Rich 17:56)
         let use = up ? Array(notes.suffix(4).reversed()) : notes
         let spread = up ? 0.0055 : 0.007
         var t = 0.0
