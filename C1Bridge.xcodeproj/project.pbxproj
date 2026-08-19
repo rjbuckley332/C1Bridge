@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0842EAF4E1C2889E1C078E44 /* EmbeddedMasterMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA3BF9C8E32D6B7B1963D7BA /* EmbeddedMasterMapping.swift */; };
+		0D1E4A0C3BB380BFFB00A311 /* strum_c.caf in Resources */ = {isa = PBXBuildFile; fileRef = 1B78BDDCA9E58D286717EAFD /* strum_c.caf */; };
 		2B4551BE75149C9408FDE086 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEC8DBA3349D0AB5856A376E /* ContentView.swift */; };
 		3000A799E76EEE9ABDFE3C86 /* SuggestedTempoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B03C074777A053D6BE84C69 /* SuggestedTempoStore.swift */; };
 		3D58B3BD286903E537172CBA /* PatternLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FE8CA2CEB793CAAC8D79056 /* PatternLibrary.swift */; };
@@ -15,9 +16,12 @@
 		466A37BB43295D955A5DB1AB /* BackgroundAudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F054EEE94F0D9F6A43A826F6 /* BackgroundAudioManager.swift */; };
 		51390809AEA2A383F34653A8 /* LooperEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05633343730386E82BC3C1CB /* LooperEngine.swift */; };
 		51DF4B5A3307A0C3D159A0A3 /* BeatPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 535323137AC887F1262B1969 /* BeatPlayer.swift */; };
+		7005B1A65D3A272967AFCD36 /* strum_a.caf in Resources */ = {isa = PBXBuildFile; fileRef = 7AFDE16D357AF1921DE23582 /* strum_a.caf */; };
+		71DDA0008585F038E490D8D4 /* strum_a_up.caf in Resources */ = {isa = PBXBuildFile; fileRef = 85F1D21D4E157288884AC82F /* strum_a_up.caf */; };
 		788F2076C639196219274298 /* OnSongSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC15ECB53B4C7641FAF5905 /* OnSongSync.swift */; };
 		82F960E66714EDD2B1D387A4 /* BeatLibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F84BF7B60DA4363EDCFC6CE /* BeatLibraryStore.swift */; };
 		8B8E911D750D2C88BFB32423 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = F18C144DA9C30B36411E5FC8 /* LaunchScreen.storyboard */; };
+		97818B2669B74FD2FC4FD349 /* strum_b_up.caf in Resources */ = {isa = PBXBuildFile; fileRef = 9A4B0D680105461DC2088F16 /* strum_b_up.caf */; };
 		9908E34779EBB3433F0A1AAB /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A746321A2AF5B1EB8A163E6 /* AppModel.swift */; };
 		9CAF2FDDA3CD524EE7E069F8 /* BeatSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFBF175B997283A339BFE204 /* BeatSetupView.swift */; };
 		B08340F92668C2C73332E36C /* SongSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08453A95BE07A1EE056792D2 /* SongSetupView.swift */; };
@@ -25,9 +29,12 @@
 		BE4AF02CE383E9CDC5A185E8 /* MIDIHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5ED99013535799D405AD407 /* MIDIHandler.swift */; };
 		C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A9774CF1858FF858FE7190 /* PayloadUtils.swift */; };
 		CD6D84BCE9E96B7AEDCC0FED /* VoiceCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */; };
+		D0E5E922742CDAC4E9148F08 /* StrumPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C14D7B0D934298CC29245A6 /* StrumPlayer.swift */; };
 		D7184FACDA82F88A73E94001 /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07D8F7D3E8CD6BADABF3168 /* SyncView.swift */; };
 		D8A801183D431BA34AE4218F /* FavoritesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFE897889DABAAF6D1C48863 /* FavoritesStore.swift */; };
 		DAEEDDC05E219044C2060CB7 /* C1BridgeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */; };
+		DD6F517E58D24BD069430525 /* strum_c_up.caf in Resources */ = {isa = PBXBuildFile; fileRef = BA12851CCCD5CB2B81A880FC /* strum_c_up.caf */; };
+		E871AB75FD815FEF4FEE3837 /* strum_b.caf in Resources */ = {isa = PBXBuildFile; fileRef = 40C3C5F0CBDD743AE59D7418 /* strum_b.caf */; };
 		EA9E65E11ADC1DA139745A4A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D568B76A0D9879217511160B /* Assets.xcassets */; };
 		F6E89EEC3D85968A2432BC12 /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7F81C6AB2812C0916D1C1DD /* BLEManager.swift */; };
 /* End PBXBuildFile section */
@@ -35,19 +42,26 @@
 /* Begin PBXFileReference section */
 		05633343730386E82BC3C1CB /* LooperEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LooperEngine.swift; sourceTree = "<group>"; };
 		08453A95BE07A1EE056792D2 /* SongSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongSetupView.swift; sourceTree = "<group>"; };
+		1B78BDDCA9E58D286717EAFD /* strum_c.caf */ = {isa = PBXFileReference; path = strum_c.caf; sourceTree = "<group>"; };
 		207EB7B6D1B960BE058B7766 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		2A746321A2AF5B1EB8A163E6 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		2C14D7B0D934298CC29245A6 /* StrumPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrumPlayer.swift; sourceTree = "<group>"; };
 		2F41FF570DB83FC6D1A4F164 /* C1Bridge.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = C1Bridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2F84BF7B60DA4363EDCFC6CE /* BeatLibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatLibraryStore.swift; sourceTree = "<group>"; };
 		35A9774CF1858FF858FE7190 /* PayloadUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PayloadUtils.swift; sourceTree = "<group>"; };
 		3B03C074777A053D6BE84C69 /* SuggestedTempoStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SuggestedTempoStore.swift; sourceTree = "<group>"; };
+		40C3C5F0CBDD743AE59D7418 /* strum_b.caf */ = {isa = PBXFileReference; path = strum_b.caf; sourceTree = "<group>"; };
 		535323137AC887F1262B1969 /* BeatPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatPlayer.swift; sourceTree = "<group>"; };
+		7AFDE16D357AF1921DE23582 /* strum_a.caf */ = {isa = PBXFileReference; path = strum_a.caf; sourceTree = "<group>"; };
 		7FE8CA2CEB793CAAC8D79056 /* PatternLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatternLibrary.swift; sourceTree = "<group>"; };
+		85F1D21D4E157288884AC82F /* strum_a_up.caf */ = {isa = PBXFileReference; path = strum_a_up.caf; sourceTree = "<group>"; };
+		9A4B0D680105461DC2088F16 /* strum_b_up.caf */ = {isa = PBXFileReference; path = strum_b_up.caf; sourceTree = "<group>"; };
 		A5ED99013535799D405AD407 /* MIDIHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIHandler.swift; sourceTree = "<group>"; };
 		A7F81C6AB2812C0916D1C1DD /* BLEManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEManager.swift; sourceTree = "<group>"; };
 		AEC8DBA3349D0AB5856A376E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B476EF9C5CC8D75E63F5321A /* PresetStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetStore.swift; sourceTree = "<group>"; };
 		B7270F5CB7D550DE074B84E3 /* C1BridgeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = C1BridgeApp.swift; sourceTree = "<group>"; };
+		BA12851CCCD5CB2B81A880FC /* strum_c_up.caf */ = {isa = PBXFileReference; path = strum_c_up.caf; sourceTree = "<group>"; };
 		BBC15ECB53B4C7641FAF5905 /* OnSongSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnSongSync.swift; sourceTree = "<group>"; };
 		BFBF175B997283A339BFE204 /* BeatSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatSetupView.swift; sourceTree = "<group>"; };
 		C07D8F7D3E8CD6BADABF3168 /* SyncView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncView.swift; sourceTree = "<group>"; };
@@ -85,9 +99,11 @@
 				35A9774CF1858FF858FE7190 /* PayloadUtils.swift */,
 				B476EF9C5CC8D75E63F5321A /* PresetStore.swift */,
 				08453A95BE07A1EE056792D2 /* SongSetupView.swift */,
+				2C14D7B0D934298CC29245A6 /* StrumPlayer.swift */,
 				3B03C074777A053D6BE84C69 /* SuggestedTempoStore.swift */,
 				C07D8F7D3E8CD6BADABF3168 /* SyncView.swift */,
 				ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */,
+				53D072EF6F1F2A14E032108C /* Strums */,
 			);
 			path = C1Bridge;
 			sourceTree = "<group>";
@@ -98,6 +114,19 @@
 				37AD2225C421A4A21AA39A35 /* C1Bridge */,
 				B4CB584D19073AC634A8AC38 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		53D072EF6F1F2A14E032108C /* Strums */ = {
+			isa = PBXGroup;
+			children = (
+				85F1D21D4E157288884AC82F /* strum_a_up.caf */,
+				7AFDE16D357AF1921DE23582 /* strum_a.caf */,
+				9A4B0D680105461DC2088F16 /* strum_b_up.caf */,
+				40C3C5F0CBDD743AE59D7418 /* strum_b.caf */,
+				BA12851CCCD5CB2B81A880FC /* strum_c_up.caf */,
+				1B78BDDCA9E58D286717EAFD /* strum_c.caf */,
+			);
+			path = Strums;
 			sourceTree = "<group>";
 		};
 		B4CB584D19073AC634A8AC38 /* Products */ = {
@@ -170,6 +199,12 @@
 			files = (
 				EA9E65E11ADC1DA139745A4A /* Assets.xcassets in Resources */,
 				8B8E911D750D2C88BFB32423 /* LaunchScreen.storyboard in Resources */,
+				7005B1A65D3A272967AFCD36 /* strum_a.caf in Resources */,
+				71DDA0008585F038E490D8D4 /* strum_a_up.caf in Resources */,
+				E871AB75FD815FEF4FEE3837 /* strum_b.caf in Resources */,
+				97818B2669B74FD2FC4FD349 /* strum_b_up.caf in Resources */,
+				0D1E4A0C3BB380BFFB00A311 /* strum_c.caf in Resources */,
+				DD6F517E58D24BD069430525 /* strum_c_up.caf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -198,6 +233,7 @@
 				C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */,
 				44039DE5EE6464A6D110F9D3 /* PresetStore.swift in Sources */,
 				B08340F92668C2C73332E36C /* SongSetupView.swift in Sources */,
+				D0E5E922742CDAC4E9148F08 /* StrumPlayer.swift in Sources */,
 				3000A799E76EEE9ABDFE3C86 /* SuggestedTempoStore.swift in Sources */,
 				D7184FACDA82F88A73E94001 /* SyncView.swift in Sources */,
 				CD6D84BCE9E96B7AEDCC0FED /* VoiceCommandManager.swift in Sources */,
@@ -213,7 +249,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 75;
+				CURRENT_PROJECT_VERSION = 76;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -236,7 +272,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 75;
+				CURRENT_PROJECT_VERSION = 76;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

@@ -350,6 +350,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                 guitarDrumsPlaying = false
                 AppModel.shared.addLog("Slide stop — transport flash — stopping DUUDU")
                 BeatPlayer.shared.stop()
+                StrumPlayer.shared.stop()
             }
             // GUITAR BEAT SYNC (recon 2026-08-13…15): byte[1] bit 0x10 tracks
             // the BEAT PAD being HELD — not the drums' latch state (it falls on
@@ -436,6 +437,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                         guitarDrumsPlaying = false
                         AppModel.shared.addLog("Mute pad — closing diddy…")
                         BeatPlayer.shared.playEndingThenStop()
+                        StrumPlayer.shared.stop()
                         // Backstop: if the diddy's completion ever goes missing,
                         // guarantee the stop ~1 bar + 1s after the press. Silent
                         // when the diddy already stopped us (isPlaying false).
@@ -475,10 +477,18 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                                 } else {
                                     AppModel.shared.addLog("Mute pad confirmed — stopping DUUDU")
                                     BeatPlayer.shared.stop()
+                                    StrumPlayer.shared.stop()
                                 }
                             }
                         }
                     }
+                } else {
+                    // STRUM PADDLE HIT (build 76 — Rich: "wire it in so the
+                    // front paddle actuates it"): beat pad NOT held and the
+                    // pulse isn't a mute-pad 0x40 → the front paddle starts
+                    // the strum layer. Hits while it plays are Rich strumming
+                    // the C1 — the layer rides (StrumPlayer guards internally).
+                    StrumPlayer.shared.paddleHit(guitarBpm: Int(bytes[7]))
                 }
                 lastByte5RiseAt = now
             }
@@ -509,6 +519,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                     guitarDrumsPlaying = false
                     AppModel.shared.addLog("Slide stop — drums ended — stopping DUUDU")
                     BeatPlayer.shared.stop()
+                    StrumPlayer.shared.stop()
                 } else {
                     AppModel.shared.addLog("Drum-stop event 08\(String(format: "%02x", pkt2[1])) — ignored")
                 }

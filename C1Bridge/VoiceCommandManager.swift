@@ -1066,6 +1066,7 @@ final class VoiceCommandManager: ObservableObject {
         } else {
             BeatPlayer.shared.stop()
             LooperEngine.shared.stop()
+            StrumPlayer.shared.stop()
             statusLine = "Beat off."
         }
         haptic()

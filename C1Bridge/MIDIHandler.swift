@@ -214,6 +214,10 @@ class MIDIHandler {
         if (channel == 5 || channel == 6), LooperEngine.shared.isPerforming, let t = lastTempoBPM {
             LooperEngine.shared.retempo(t)
         }
+        // The strum layer rides every landed tempo too (build 76).
+        if (channel == 5 || channel == 6), StrumPlayer.shared.isPlaying, let t = lastTempoBPM {
+            StrumPlayer.shared.start(bpm: t)
+        }
         
         // 4. VOLUME: Channels 8 & 9
         else if (channel == 8 || channel == 9) && program <= 101 {
@@ -226,6 +230,7 @@ class MIDIHandler {
             sendHexWithLog("b11e02010002", name: "Global Reset")
             BeatPlayer.shared.stop()
             LooperEngine.shared.stop()
+            StrumPlayer.shared.stop()
         }
         // 4b. BEAT: Ch10 PC2 = DUUDU on (at last tempo sent), PC3 = off
         else if channel == 10 && program == 2 {
@@ -235,6 +240,7 @@ class MIDIHandler {
         else if channel == 10 && program == 3 {
             BeatPlayer.shared.stop()
             LooperEngine.shared.stop()
+            StrumPlayer.shared.stop()
         }
     }
 
