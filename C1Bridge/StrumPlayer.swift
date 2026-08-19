@@ -1,4 +1,5 @@
 import AVFoundation
+import Accelerate
 
 /// The paddle-actuated strum layer (build 76 — Rich: "wire it in so the front
 /// paddle actuates it"). A bare front strum-paddle hit (beat pad NOT held,
@@ -158,6 +159,15 @@ final class StrumPlayer: ObservableObject {
                     out[(start + i) % totalFrames] += src[i] * gain
                 }
             }
+        }
+        // Safety net (build 79): overlapping long-ring tails can stack past
+        // full scale at faster tempos — peak-normalize the render like the
+        // demos did, so the loop can never hard-clip.
+        var peak: Float = 0
+        vDSP_maxmgv(out, 1, &peak, vDSP_Length(totalFrames))
+        if peak > 0.92 {
+            var scale = 0.92 / peak
+            vDSP_vsmul(out, 1, &scale, out, 1, vDSP_Length(totalFrames))
         }
         return buffer
     }
