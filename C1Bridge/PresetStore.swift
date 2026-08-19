@@ -178,6 +178,13 @@ final class PresetStore: ObservableObject {
             if let bpm = preset.tempoBPM {
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 MIDIHandler.triggerTempo(bpm: bpm)
+                AppModel.shared.addLog("Preset tempo: closing at \(bpm) BPM")
+                // Echo (build 81): the C1's key-commit reload is ASYNC — it
+                // can finish wiping state AFTER the closing tempo lands.
+                // One more send 800ms later closes the race; a repeat tempo
+                // is idempotent, and the live-follow no-ops on a match.
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                MIDIHandler.triggerTempo(bpm: bpm)
             }
             // Beat rides the recipe: starts after every send so the preset's
             // tempo is already banked; a playing beat was already retempo'd by
