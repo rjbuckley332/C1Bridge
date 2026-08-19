@@ -46,22 +46,13 @@ final class StrumPlayer: ObservableObject {
 
     // MARK: - Public
 
-    /// Front-paddle actuation (BLEManager FF01 byte[5] rise, beat pad not held).
-    /// First hit starts the loop; hits while it plays are Rich strumming the
-    /// C1 — the layer just rides. While the Beat tab looper is in test/record
-    /// mode, paddle strikes are ITS input — the strum layer stays out of the way.
-    func paddleHit(guitarBpm: Int) {
-        DispatchQueue.main.async {
-            guard !self.isPlaying else { return }
-            if LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming { return }
-            let bpm = MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : guitarBpm
-            AppModel.shared.addLog("Paddle hit — strum layer ON @ \(bpm) BPM")
-            self.start(bpm: bpm)
-        }
-    }
-
     /// Start/restart the loop at `bpm`. No-op if that loop is already playing
     /// (BeatPlayer semantics: a live tempo change restarts in place).
+    /// NOTE (build 78): the bare front-paddle hit is NOT a trigger — that's
+    /// how Rich strums the C1's own patterns, so the layer would fire
+    /// uninvited mid-song (his catch). Starts happen ONLY via preset fire
+    /// (strumEnabled) or this row's Start. A deliberate physical gesture
+    /// (double-hit / rear paddle) can return as an opt-in if Rich wants one.
     func start(bpm: Int) {
         DispatchQueue.main.async {
             let clamped = max(40, min(220, bpm))

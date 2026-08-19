@@ -482,13 +482,6 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                             }
                         }
                     }
-                } else {
-                    // STRUM PADDLE HIT (build 76 — Rich: "wire it in so the
-                    // front paddle actuates it"): beat pad NOT held and the
-                    // pulse isn't a mute-pad 0x40 → the front paddle starts
-                    // the strum layer. Hits while it plays are Rich strumming
-                    // the C1 — the layer rides (StrumPlayer guards internally).
-                    StrumPlayer.shared.paddleHit(guitarBpm: Int(bytes[7]))
                 }
                 lastByte5RiseAt = now
             }
