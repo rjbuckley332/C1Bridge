@@ -219,9 +219,11 @@ class MIDIHandler {
         if (channel == 5 || channel == 6), LooperEngine.shared.isPerforming, let t = lastTempoBPM {
             LooperEngine.shared.retempo(t)
         }
-        // The strum layer rides every landed tempo too (build 76).
-        if (channel == 5 || channel == 6), StrumPlayer.shared.isPlaying, let t = lastTempoBPM {
-            StrumPlayer.shared.start(bpm: t)
+        // The strum layer rides every landed tempo too: a playing loop
+        // retempos in place; an armed layer re-renders its pending one-shot
+        // (build 86 — the strum's cycle must match the live tempo, Rich 18:55).
+        if channel == 5 || channel == 6, let t = lastTempoBPM {
+            StrumPlayer.shared.noteTempoLanded(t)
         }
         
         // 4. VOLUME: Channels 8 & 9

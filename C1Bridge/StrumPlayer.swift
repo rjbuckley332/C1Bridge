@@ -169,7 +169,10 @@ final class StrumPlayer: ObservableObject {
         DispatchQueue.main.async {
             guard self.armed, !self.isPlaying else { return }
             if LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming { return }
-            let bpm = self.armedBpm ?? (MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : guitarBpm)
+            let bpm = MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : (self.armedBpm ?? guitarBpm)
+            // ^ live song tempo FIRST (Rich 18:55: "the life of the strum
+            // pattern has to match the tempo") — the frozen recipe tempo is
+            // only the fallback when nothing has landed on the wire.
             // Instant path: schedule the pre-rendered buffer (near-zero hit
             // latency). Re-render inline only if the tempo moved since.
             if self.pendingOneShot == nil || self.pendingBpm != bpm {
@@ -210,6 +213,22 @@ final class StrumPlayer: ObservableObject {
         player.play()
         oneShotActive = true
         AppModel.shared.addLog("Paddle strum — \(chordName) @ \(bpm) BPM")
+    }
+
+    /// Live tempo follow (Rich 18:55): the strum's cycle length must match
+    /// the CURRENT tempo, same as the drums. A landed tempo retempos a
+    /// playing loop; when armed, it re-renders the pending one-shot so the
+    /// next hit breathes with the band.
+    func noteTempoLanded(_ bpm: Int) {
+        DispatchQueue.main.async {
+            if self.isPlaying {
+                self.start(bpm: bpm)
+                return
+            }
+            if self.armed, bpm != self.pendingBpm {
+                self.prerenderOneShot(bpm: bpm)
+            }
+        }
     }
 
     /// Start the layer at `bpm` (LOOP preview — the Song Setup row). Restarts
