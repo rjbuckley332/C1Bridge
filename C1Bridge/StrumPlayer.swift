@@ -122,6 +122,9 @@ final class StrumPlayer: ObservableObject {
     /// The recipe's tempo, captured at arm time — one-shots play at THE
     /// RECIPE's tempo (Rich 17:56: "not playing at the tempo of the recipe").
     private var armedBpm: Int?
+    /// The last tempo that landed from ANY source (wire sends, guitar
+    /// tap-tempo) — the livest tempo truth (build 87).
+    private var lastTempoLanded: Int?
     /// Pre-rendered one-shot for the current chord/tempo (Rich 17:56: "high
     /// latency between the paddle press and it coming out") — the hit just
     /// schedules this; rendering happens at arm/fret/key/tempo moments.
@@ -169,10 +172,10 @@ final class StrumPlayer: ObservableObject {
         DispatchQueue.main.async {
             guard self.armed, !self.isPlaying else { return }
             if LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming { return }
-            let bpm = MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : (self.armedBpm ?? guitarBpm)
-            // ^ live song tempo FIRST (Rich 18:55: "the life of the strum
-            // pattern has to match the tempo") — the frozen recipe tempo is
-            // only the fallback when nothing has landed on the wire.
+            let bpm = self.lastTempoLanded ?? (MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : (self.armedBpm ?? guitarBpm))
+            // ^ the LIVEST tempo first (tap-tempo / wire sends), then the
+            // banked song tempo, then the recipe's arm-time tempo, then the
+            // guitar's own byte — the cycle must match the song (Rich 18:55).
             // Instant path: schedule the pre-rendered buffer (near-zero hit
             // latency). Re-render inline only if the tempo moved since.
             if self.pendingOneShot == nil || self.pendingBpm != bpm {
@@ -221,6 +224,7 @@ final class StrumPlayer: ObservableObject {
     /// next hit breathes with the band.
     func noteTempoLanded(_ bpm: Int) {
         DispatchQueue.main.async {
+            self.lastTempoLanded = bpm
             if self.isPlaying {
                 self.start(bpm: bpm)
                 return

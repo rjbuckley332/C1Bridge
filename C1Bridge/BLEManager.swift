@@ -611,6 +611,12 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         pendingTempoFollowAt = markedAt
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self, self.pendingTempoFollowAt == markedAt else { return }
+            // The armed strum follows the guitar's tap-tempo too — even when
+            // DUUDU is off (build 87: the strum's cycle must match the song
+            // tempo). Banking is unconditional: the guitar's tapped tempo IS
+            // the current truth.
+            StrumPlayer.shared.noteTempoLanded(candidate)
+            MIDIHandler.bankExternalTempo(bpm: candidate)
             guard BeatPlayer.shared.isPlaying else { return }
             guard candidate != BeatPlayer.shared.currentBPM else { return }
             AppModel.shared.addLog("Guitar tap-tempo — DUUDU follows @ \(candidate) BPM")
