@@ -111,6 +111,44 @@ final class StrumPlayer: ObservableObject {
 
     // MARK: - Public control
 
+    /// Whether the front paddle toggles this layer (build 83 — Rich: "The
+    /// strum plays only when I toggle the front paddle. It takes the place
+    /// of sweep cutting. This is a different function than drum."). Armed
+    /// ONLY by firing a recipe whose strum is enabled — a C1-pattern song
+    /// never gets surprised (his 13:18 rule). The strum occupies the
+    /// MELODIC slot (replacing the C1's pattern on that paddle), unlike the
+    /// drums, which are a separate layer with their own gesture.
+    @Published private(set) var armed = false
+
+    /// Preset fire sets the arming. Strum recipes: armed, waiting for the
+    /// paddle (no auto-start — "plays only when I toggle"). Non-strum
+    /// recipes: disarmed, and a playing layer stops with the song change.
+    func setArmed(_ on: Bool) {
+        DispatchQueue.main.async {
+            self.armed = on
+            if !on, self.isPlaying { self.stopInternal() }
+            AppModel.shared.addLog(on ? "Strum armed — front paddle toggles it" : "Strum disarmed")
+        }
+    }
+
+    /// Front-paddle toggle (BLEManager byte[5] rise, beat pad not held,
+    /// velocity != 0x40). No-op unless a strum recipe armed it. Looper
+    /// test/record mode owns the paddle while it's active.
+    func paddleToggle(guitarBpm: Int) {
+        DispatchQueue.main.async {
+            guard self.armed else { return }
+            if LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming { return }
+            if self.isPlaying {
+                self.stopInternal()
+                AppModel.shared.addLog("Paddle toggle — strum OFF")
+            } else {
+                let bpm = MIDIHandler.hasSongTempo ? MIDIHandler.lastSentTempoBPM : guitarBpm
+                AppModel.shared.addLog("Paddle toggle — strum ON @ \(bpm) BPM")
+                self.start(bpm: bpm)
+            }
+        }
+    }
+
     /// Start the layer at `bpm`. Restarts in place on tempo change (the
     /// live-follow hook rides that). Chord starts at the current fret/degree.
     func start(bpm: Int) {

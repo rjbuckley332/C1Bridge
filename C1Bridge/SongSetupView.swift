@@ -242,7 +242,7 @@ struct SongSetupView: View {
                 Text("🎸 332 Strum")
                     .font(.subheadline)
                 Spacer()
-                Text(strum.isPlaying ? "\(strum.chordName) @ \(strum.currentBPM) BPM — follows your frets" : "Start to preview · starts with the song")
+                Text(strum.isPlaying ? "\(strum.chordName) @ \(strum.currentBPM) BPM — follows your frets" : (strum.armed ? "armed — toggle the front paddle" : "Start to preview · in a recipe, the paddle toggles it"))
                     .font(.caption).foregroundStyle(.secondary)
                 Button(strum.isPlaying ? "Stop" : "Start") { voice.setStrum(!strum.isPlaying) }
                     .buttonStyle(.borderedProminent)
@@ -351,7 +351,7 @@ struct SongSetupView: View {
             }
         }
         if voice.strumInRecipe {
-            lines.append("🎸 332 Strum starts on load")
+            lines.append("🎸 332 Strum — front paddle toggles it on/off")
         }
         return lines.isEmpty ? "Nothing yet." : lines.joined(separator: "\n")
     }

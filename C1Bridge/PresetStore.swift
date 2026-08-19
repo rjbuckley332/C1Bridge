@@ -201,12 +201,11 @@ final class PresetStore: ObservableObject {
                     BeatPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
                 }
             }
-            // Strum layer rides the recipe too (build 77): starts after the
-            // closing tempo landed so it's banked; layers with whatever beat
-            // started — drums + strums = the arrangement.
-            if preset.strumEnabled {
-                StrumPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
-            }
+            // Strum layer rides the recipe (build 83 semantics): a strum
+            // recipe ARMS the front-paddle toggle — no auto-start ("plays
+            // only when I toggle"); any other recipe disarms it (and a
+            // playing layer stops with the song change).
+            StrumPlayer.shared.setArmed(preset.strumEnabled)
         }
     }
 
