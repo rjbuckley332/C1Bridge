@@ -5,6 +5,9 @@ class MIDIHandler {
     private static var client = MIDIClientRef()
     private static var virtualDestination = MIDIEndpointRef()
     private static var currentKeyBase: UInt8 = 0x20
+    /// Key root as a pitch class 0-11 (C=0) — the strum layer's chord voicer
+    /// reads this to voice the current degree in the current key.
+    static var currentKeyRootPC: Int { Int(currentKeyBase) - 0x20 }
     /// Most recent tempo sent to the C1 — the beat engine rides this
     /// (universal tempo rule: the tempo field is the single source of truth).
     /// nil = no tempo sent this session (build 41: lets the guitar-start
@@ -169,6 +172,7 @@ class MIDIHandler {
                 currentKeyBase = 0x20 + UInt8(program - 1)
                 sendHexWithLog(entry.payloadHex, name: "Key \(entry.name)")
                 sendHexWithLog("b11e02010002", name: "Commit Standard")
+                StrumPlayer.shared.noteKeyMayHaveChanged()
             }
             // Rock Key Logic (Programs 14-25)
             else if program >= 14 && program <= 25 {
@@ -177,6 +181,7 @@ class MIDIHandler {
                     currentKeyBase = 0x20 + UInt8(basePC - 1)
                     sendHexWithLog(entry.payloadHex, name: "Rock Key \(entry.name)")
                     applyRockFlats()
+                    StrumPlayer.shared.noteKeyMayHaveChanged()
                 }
             }
             return

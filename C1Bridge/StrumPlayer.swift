@@ -1,22 +1,27 @@
 import AVFoundation
 import Accelerate
 
-/// The paddle-actuated strum layer (build 76 — Rich: "wire it in so the front
-/// paddle actuates it"). A bare front strum-paddle hit (beat pad NOT held,
-/// velocity != 0x40) starts a looping guitar-strum rhythm built from Rich's
-/// OWN recorded strums — three long-ring takes extracted from his "332
-/// Railtree Hill Rd" voice memo, bundled as CAFs and rotated round-robin with
-/// per-slot accents and human timing/gain jitter (the demo-validated sound:
-/// a single static sample on a grid reads mechanical — his ear, 10:23).
+/// The fret-following acoustic strum layer (build 80 — Rich: "The chord needs
+/// to match the fret I press, in the key I press").
 ///
-/// Grid B (Rich 08-19): eighth-note slots {1,3,4,5,7} — every strum married
-/// to a DUUDU drum hit. The loop LAYERS with BeatPlayer (drums + strums =
-/// the arrangement); it is NOT part of the one-drummer-at-a-time rule.
+/// Voices are REAL studio acoustic-guitar notes (GarageBand/Logic EXS factory
+/// samples, bundled as CAFs n35…n67, every semitone B1–G4; gaps ±1-semitone
+/// resampled). A strum = the chord's notes staggered like a pick crossing
+/// strings, natural decays intact — the demo-E sound Rich approved.
 ///
-/// The loop buffer spans FOUR bars so take rotation and jitter actually vary
-/// bar to bar (a 1-bar buffer would repeat one frozen bar forever — the same
-/// mechanical trap as the first demo). Strum tails wrap across the loop
-/// point so the ring never cuts at the seam.
+/// CHORD = fret position → scale degree (the C1 is an auto-chord guitar:
+/// position N = degree N of the current key — byte[12] recon read the major
+/// scale 0,2,4,5,7,9,11 across positions in C) → diatonic triad
+/// (I ii iii IV V vi vii°) voiced on 6 strings.
+///
+/// TRANSPORT = bar-by-bar scheduling (not one long loop): every bar is
+/// rendered fresh — new take rotation, new jitter, CURRENT chord — so a chord
+/// change lands on the next bar line (≤1 bar), via .interruptsAtLoop, the
+/// same mechanism BeatPlayer's transition fills use. Tails ring ACROSS bars
+/// via lookback render (the build-62 lesson: never cut a ring at a boundary).
+///
+/// Starts ONLY by deliberate intent (build 78 rule): preset fire or the Song
+/// Setup row. Layers with BeatPlayer; stops on all the drum-stop paths.
 final class StrumPlayer: ObservableObject {
     static let shared = StrumPlayer()
 
@@ -26,97 +31,72 @@ final class StrumPlayer: ObservableObject {
 
     @Published private(set) var isPlaying = false
     @Published private(set) var currentBPM = 0
+    /// Live chord being strummed (for the Song Setup row + logs).
+    @Published private(set) var chordName = "—"
 
-    private struct StrumHit { let slot: Int; let gain: Float; let up: Bool }
-    /// Grid B: slots {1,3,4,5,7} 1-based = {0,2,3,4,6} 0-based; strokes D·DUD·D·.
-    /// Gains are the demo's accent map (downbeat loudest, kicks reinforced, up lightest).
-    private let grid: [StrumHit] = [
-        .init(slot: 0, gain: 1.00, up: false),
-        .init(slot: 2, gain: 0.80, up: false),
-        .init(slot: 3, gain: 0.62, up: true),
-        .init(slot: 4, gain: 0.90, up: false),
-        .init(slot: 6, gain: 0.70, up: false),
-    ]
+    // MARK: - Chord state
 
-    private var downTakes: [AVAudioPCMBuffer] = []
-    private var upTakes: [AVAudioPCMBuffer] = []
+    /// Key root pitch class 0-11 (nil = not set yet → C until a key arrives).
+    private var keyRootPC = 0
+    /// Scale degree 1-7 currently strummed (from the C1 fret mask).
+    private var degree = 1
+    private static let majorScale = [0, 2, 4, 5, 7, 9, 11]
+    private static let pcNames = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
+
+    /// Diatonic triad for a degree in a major key: (third semitones, fifth semitones).
+    private static func triad(_ deg: Int) -> (Int, Int) {
+        switch deg {
+        case 1, 4, 5: return (4, 7)   // major
+        case 2, 3, 6: return (3, 7)   // minor
+        default:        return (3, 6) // vii° diminished
+        }
+    }
+
+    /// Voice the current chord on 6 strings (E2 A2 D3 G3 B3 E4): root in the
+    /// bass, then each string takes its nearest chord tone (±4 semitones of
+    /// the open string), avoiding immediate pitch-class repeats where it can.
+    private func voiceChord() -> (name: String, notes: [Int]) {
+        let rootPC = (keyRootPC + Self.majorScale[degree - 1]) % 12
+        let (t3, t5) = Self.triad(degree)
+        let tones = [rootPC, (rootPC + t3) % 12, (rootPC + t5) % 12]
+        let suffix = t3 == 4 ? "" : (t5 == 6 ? "°" : "m")
+        let name = Self.pcNames[rootPC] + suffix
+        // Root in the bass: lowest root-pc note at or above 36 (C2).
+        var bass = 36 + ((rootPC - 0) % 12)
+        while bass > 43 { bass -= 12 }
+        while bass < 35 { bass += 12 }
+        var notes = [bass]
+        let openStrings = [45, 50, 55, 59, 64] // A2 D3 G3 B3 E4
+        var prevPC = bass % 12
+        for open in openStrings {
+            var best: Int? = nil
+            for off in -2...4 {
+                let n = open + off
+                guard tones.contains(n % 12), n >= 35, n <= 67 else { continue }
+                if best == nil { best = n }
+                if n % 12 != prevPC { best = n; break } // prefer a fresh tone
+            }
+            if let b = best {
+                notes.append(b)
+                prevPC = b % 12
+            }
+        }
+        return (name, notes)
+    }
+
+    // MARK: - Note pool
+
+    private var notePool: [Int: AVAudioPCMBuffer] = [:]
     private static let sr = 44_100.0
-    private static let loopBars = 4
 
-    private init() { loadTakes() }
+    private init() { loadPool() }
 
-    // MARK: - Public
-
-    /// Start/restart the loop at `bpm`. No-op if that loop is already playing
-    /// (BeatPlayer semantics: a live tempo change restarts in place).
-    /// NOTE (build 78): the bare front-paddle hit is NOT a trigger — that's
-    /// how Rich strums the C1's own patterns, so the layer would fire
-    /// uninvited mid-song (his catch). Starts happen ONLY via preset fire
-    /// (strumEnabled) or this row's Start. A deliberate physical gesture
-    /// (double-hit / rear paddle) can return as an opt-in if Rich wants one.
-    func start(bpm: Int) {
-        DispatchQueue.main.async {
-            let clamped = max(40, min(220, bpm))
-            if self.isPlaying && self.currentBPM == clamped { return }
-            self.stopInternal()
-            guard !self.downTakes.isEmpty else {
-                AppModel.shared.addLog("Strum: bundled takes missing — check Strums/ in the target")
-                return
-            }
-            self.installGraphIfNeeded()
-            guard let loop = self.renderLoopBuffer(bpm: clamped) else {
-                AppModel.shared.addLog("Strum: could not render loop buffer")
-                return
-            }
-            do {
-                if !self.engine.isRunning { try self.engine.start() }
-            } catch {
-                AppModel.shared.addLog("Strum engine start failed: \(error.localizedDescription)")
-                return
-            }
-            self.player.scheduleBuffer(loop, at: nil, options: .loops, completionHandler: nil)
-            self.player.play()
-            self.isPlaying = true
-            self.currentBPM = clamped
-            AppModel.shared.addLog("Strum layer ON — grid B @ \(clamped) BPM")
+    private func loadPool() {
+        for m in 35...67 {
+            if let buf = Self.loadCaf("n\(m)") { notePool[m] = buf }
         }
-    }
-
-    func stop() {
-        DispatchQueue.main.async {
-            guard self.isPlaying else { return }
-            self.stopInternal()
-            AppModel.shared.addLog("Strum layer OFF")
-        }
-    }
-
-    // MARK: - Internals
-
-    private func stopInternal() {
-        player.stop()
-        isPlaying = false
-        currentBPM = 0
-    }
-
-    private func installGraphIfNeeded() {
-        guard !graphInstalled else { return }
-        engine.attach(player)
-        guard let format = AVAudioFormat(standardFormatWithSampleRate: Self.sr, channels: 1) else {
-            AppModel.shared.addLog("Strum: could not create audio format")
-            return
-        }
-        engine.connect(player, to: engine.mainMixerNode, format: format)
-        engine.prepare()
-        graphInstalled = true
-    }
-
-    private func loadTakes() {
-        for name in ["strum_a", "strum_b", "strum_c"] {
-            if let buf = Self.loadCaf(name) { downTakes.append(buf) }
-            if let buf = Self.loadCaf(name + "_up") { upTakes.append(buf) }
-        }
-        if downTakes.isEmpty || upTakes.isEmpty {
-            AppModel.shared.addLog("Strum: takes failed to load (down \(downTakes.count), up \(upTakes.count))")
+        if notePool.count < 30 {
+            AppModel.shared.addLog("Strum: note pool incomplete (\(notePool.count)/33) — check Strums/Notes")
         }
     }
 
@@ -129,46 +109,238 @@ final class StrumPlayer: ObservableObject {
         return buf
     }
 
-    /// Render the 4-bar loop: grid B each bar, takes rotating round-robin,
-    /// per-hit human jitter (±7ms timing — strums sit ~4ms behind the beat,
-    /// ±6% gain), tails wrapping across the loop seam.
-    private func renderLoopBuffer(bpm: Int) -> AVAudioPCMBuffer? {
+    // MARK: - Public control
+
+    /// Start the layer at `bpm`. Restarts in place on tempo change (the
+    /// live-follow hook rides that). Chord starts at the current fret/degree.
+    func start(bpm: Int) {
+        DispatchQueue.main.async {
+            let clamped = max(40, min(220, bpm))
+            if self.isPlaying && self.currentBPM == clamped { return }
+            self.stopInternal()
+            self.keyRootPC = MIDIHandler.currentKeyRootPC
+            guard !self.notePool.isEmpty else {
+                AppModel.shared.addLog("Strum: note pool missing")
+                return
+            }
+            self.installGraphIfNeeded()
+            do {
+                if !self.engine.isRunning { try self.engine.start() }
+            } catch {
+                AppModel.shared.addLog("Strum engine start failed: \(error.localizedDescription)")
+                return
+            }
+            self.isPlaying = true
+            self.currentBPM = clamped
+            self.generation += 1
+            self.updateChordName()
+            AppModel.shared.addLog("Strum layer ON — \(self.chordName) @ \(clamped) BPM, follows your frets")
+            self.scheduleTwo()
+        }
+    }
+
+    func stop() {
+        DispatchQueue.main.async {
+            guard self.isPlaying else { return }
+            self.stopInternal()
+            AppModel.shared.addLog("Strum layer OFF")
+        }
+    }
+
+    /// Fret-position feed (BLEManager FF01 byte[4]). Position N = degree N;
+    /// 0 = nothing pressed (hold the current chord). A new degree while
+    /// playing swaps the chord at the next bar line.
+    func noteFretMask(_ mask: UInt8) {
+        guard mask != 0 else { return }
+        let deg = mask.trailingZeroBitCount  // pos1=0x02→1 … pos7=0x80→7
+        guard (1...7).contains(deg), deg != degree else { return }
+        DispatchQueue.main.async {
+            self.degree = deg
+            self.updateChordName()
+            AppModel.shared.addLog("Strum chord → \(self.chordName) (pos \(deg))")
+            self.swapChordIfPlaying()
+        }
+    }
+
+    /// Key-change feed (MIDIHandler Ch7): re-read the key root; a playing
+    /// layer re-voices the current degree in the new key at the bar line.
+    func noteKeyMayHaveChanged() {
+        DispatchQueue.main.async {
+            let k = MIDIHandler.currentKeyRootPC
+            guard k != self.keyRootPC else { return }
+            self.keyRootPC = k
+            self.updateChordName()
+            AppModel.shared.addLog("Strum key change — now \(self.chordName)")
+            self.swapChordIfPlaying()
+        }
+    }
+
+    // MARK: - Transport (bar-by-bar, chord-swappable)
+
+    /// Bumps on every stop/restart; stale completion handlers check it and bail.
+    private var generation = 0
+    private var barsQueuedAhead = 0
+
+    private func swapChordIfPlaying() {
+        guard isPlaying else { return }
+        // Preempt at the next bar line with the new chord, then re-chain.
+        // Same mechanism as BeatPlayer's transition fill.
+        guard let bar = renderBar(bpm: currentBPM) else { return }
+        player.scheduleBuffer(bar, at: nil, options: .interruptsAtLoop) { [weak self] in
+            DispatchQueue.main.async { self?.barCompleted() }
+        }
+    }
+
+    private func scheduleTwo() {
+        for _ in 0..<2 {
+            guard let bar = renderBar(bpm: currentBPM) else { return }
+            barsQueuedAhead += 1
+            player.scheduleBuffer(bar, at: nil, options: []) { [weak self] in
+                DispatchQueue.main.async { self?.barCompleted() }
+            }
+        }
+        player.play()
+    }
+
+    private func barCompleted() {
+        guard isPlaying else { return }
+        barsQueuedAhead = max(0, barsQueuedAhead - 1)
+        // Cap the queue: interrupted/preempted bars also fire completions —
+        // without the cap a chord change could stack extra bars ahead and
+        // delay the NEXT chord change.
+        guard barsQueuedAhead < 2 else { return }
+        guard let bar = renderBar(bpm: currentBPM) else { return }
+        barsQueuedAhead += 1
+        player.scheduleBuffer(bar, at: nil, options: []) { [weak self] in
+            DispatchQueue.main.async { self?.barCompleted() }
+        }
+    }
+
+    // MARK: - Rendering
+
+    private struct StrumHit { let slot: Int; let gain: Float; let up: Bool }
+    /// Grid B (Rich 08-19): slots {1,3,4,5,7} 1-based, strokes D·DUD·D·.
+    private let grid: [StrumHit] = [
+        .init(slot: 0, gain: 1.00, up: false),
+        .init(slot: 2, gain: 0.80, up: false),
+        .init(slot: 3, gain: 0.62, up: true),
+        .init(slot: 4, gain: 0.90, up: false),
+        .init(slot: 6, gain: 0.70, up: false),
+    ]
+
+    /// Hits from recent bars whose tails must ring into the next render
+    /// (lookback): (seconds before the new bar's end the hit fired, note
+    /// buffer, gain). Pruned once fully decayed.
+    private var tailHistory: [(offsetFrames: Int, take: AVAudioPCMBuffer, gain: Float)] = []
+
+    /// Assemble one strummed chord: notes staggered like a pick crossing the
+    /// strings (down: bass→treble ~7ms/string, bass-biased; up: top strings
+    /// treble→bass, lighter). Fresh human jitter every call.
+    private func assembleStrum(notes: [Int], up: Bool) -> AVAudioPCMBuffer? {
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: Self.sr, channels: 1) else { return nil }
+        let length = Int(2.4 * Self.sr)
+        guard let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(length)),
+              let data = buf.floatChannelData else { return nil }
+        buf.frameLength = AVAudioFrameCount(length)
+        let out = data[0]
+        memset(out, 0, length * MemoryLayout<Float>.size)
+        let baseGains: [Float] = [1.0, 0.98, 0.95, 0.9, 0.85, 0.8]
+        let use = up ? Array(notes.suffix(4).reversed()) : notes
+        let spread = up ? 0.0055 : 0.007
+        var t = 0.0
+        for (i, m) in use.enumerated() {
+            guard let nb = notePool[m], let nd = nb.floatChannelData else { continue }
+            let g = (up ? baseGains[i] * 0.62 : baseGains[i]) * Float.random(in: 0.95...1.05)
+            let start = Int((t + Double.random(in: -0.0012...0.0012)) * Self.sr)
+            let n = min(Int(nb.frameLength), length - start)
+            let src = nd[0]
+            for f in 0..<max(0, n) { out[start + f] += src[f] * g }
+            t += spread
+        }
+        return buf
+    }
+
+    /// Render one bar: current chord on grid B with accents and timing human,
+    /// plus the lookback tails of recent hits still ringing.
+    private func renderBar(bpm: Int) -> AVAudioPCMBuffer? {
         guard let format = AVAudioFormat(standardFormatWithSampleRate: Self.sr, channels: 1) else { return nil }
         let eighthFrames = Int((60.0 / Double(bpm) / 2.0) * Self.sr)
         let barFrames = eighthFrames * 8
-        let totalFrames = barFrames * Self.loopBars
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(totalFrames)),
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(barFrames)),
               let data = buffer.floatChannelData else { return nil }
-        buffer.frameLength = AVAudioFrameCount(totalFrames)
+        buffer.frameLength = AVAudioFrameCount(barFrames)
         let out = data[0]
-        memset(out, 0, totalFrames * MemoryLayout<Float>.size)
+        memset(out, 0, barFrames * MemoryLayout<Float>.size)
 
-        var downIdx = 0, upIdx = 0
-        for bar in 0..<Self.loopBars {
-            let barStart = bar * barFrames
-            for hit in grid {
-                let take = hit.up ? upTakes[upIdx % upTakes.count] : downTakes[downIdx % downTakes.count]
-                if hit.up { upIdx += 1 } else { downIdx += 1 }
-                let jitterSec = 0.004 + Double.random(in: -0.007...0.007)
-                let gain = hit.gain * Float.random(in: 0.94...1.06)
-                let start = barStart + hit.slot * eighthFrames + Int(jitterSec * Self.sr)
-                guard let takeData = take.floatChannelData else { continue }
-                let n = Int(take.frameLength)
-                let src = takeData[0]
-                for i in 0..<n {
-                    out[(start + i) % totalFrames] += src[i] * gain
-                }
+        // 1) Lookback tails: hits from the last ~2 bars still ringing.
+        var kept: [(Int, AVAudioPCMBuffer, Float)] = []
+        for (off, take, gain) in tailHistory {
+            guard let td = take.floatChannelData else { continue }
+            let n = Int(take.frameLength)
+            let remain = n - off
+            if remain > 0 {
+                let src = td[0]
+                let c = min(remain, barFrames)
+                for i in 0..<c { out[i] += src[off + i] * gain }
+                kept.append((off + barFrames, take, gain)) // shift for the next bar
             }
         }
-        // Safety net (build 79): overlapping long-ring tails can stack past
-        // full scale at faster tempos — peak-normalize the render like the
-        // demos did, so the loop can never hard-clip.
+        tailHistory = kept
+
+        // 2) This bar's strums: one fresh down-assembly and one up-assembly.
+        let chord = voiceChord()
+        guard let downTake = assembleStrum(notes: chord.notes, up: false),
+              let upTake = assembleStrum(notes: chord.notes, up: true),
+              let dd = downTake.floatChannelData, let ud = upTake.floatChannelData else { return nil }
+        for hit in grid {
+            let take = hit.up ? upTake : downTake
+            let src = (hit.up ? ud : dd)[0]
+            let jitterSec = 0.004 + Double.random(in: -0.007...0.007)
+            let gain = hit.gain * Float.random(in: 0.94...1.06)
+            let start = hit.slot * eighthFrames + Int(jitterSec * Self.sr)
+            let n = min(Int(take.frameLength), barFrames - start)
+            for i in 0..<max(0, n) { out[start + i] += src[i] * gain }
+            // remember where the NEXT bar resumes inside this take
+            let used = n
+            if used < Int(take.frameLength) {
+                tailHistory.append((used, take, gain))
+            }
+        }
+
+        // 3) Safety net (build 79): never clip.
         var peak: Float = 0
-        vDSP_maxmgv(out, 1, &peak, vDSP_Length(totalFrames))
+        vDSP_maxmgv(out, 1, &peak, vDSP_Length(barFrames))
         if peak > 0.92 {
             var scale = 0.92 / peak
-            vDSP_vsmul(out, 1, &scale, out, 1, vDSP_Length(totalFrames))
+            vDSP_vsmul(out, 1, &scale, out, 1, vDSP_Length(barFrames))
         }
         return buffer
+    }
+
+    // MARK: - Internals
+
+    private func updateChordName() {
+        chordName = voiceChord().name
+    }
+
+    private func stopInternal() {
+        player.stop()
+        isPlaying = false
+        currentBPM = 0
+        barsQueuedAhead = 0
+        tailHistory = []
+        generation += 1
+    }
+
+    private func installGraphIfNeeded() {
+        guard !graphInstalled else { return }
+        engine.attach(player)
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: Self.sr, channels: 1) else {
+            AppModel.shared.addLog("Strum: could not create audio format")
+            return
+        }
+        engine.connect(player, to: engine.mainMixerNode, format: format)
+        engine.prepare()
+        graphInstalled = true
     }
 }

@@ -242,7 +242,7 @@ struct SongSetupView: View {
                 Text("🎸 332 Strum")
                     .font(.subheadline)
                 Spacer()
-                Text(strum.isPlaying ? "playing @ \(strum.currentBPM) BPM" : "Start to preview · starts with the song")
+                Text(strum.isPlaying ? "\(strum.chordName) @ \(strum.currentBPM) BPM — follows your frets" : "Start to preview · starts with the song")
                     .font(.caption).foregroundStyle(.secondary)
                 Button(strum.isPlaying ? "Stop" : "Start") { voice.setStrum(!strum.isPlaying) }
                     .buttonStyle(.borderedProminent)

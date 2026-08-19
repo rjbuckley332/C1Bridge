@@ -310,7 +310,7 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             // Publish fretboard telemetry on EVERY FF01 frame (guarded assigns
             // make no-change frames free) so the Beat tab never misses state —
             // including the baseline frame that returns early below.
-            if fretMask != bytes[4] { fretMask = bytes[4] }
+            if fretMask != bytes[4] { fretMask = bytes[4]; StrumPlayer.shared.noteFretMask(bytes[4]) }
             if paddleByte != bytes[5] { paddleByte = bytes[5] }
             if noteStepByte != bytes[12] { noteStepByte = bytes[12] }
             if noteFlagByte != bytes[13] { noteFlagByte = bytes[13] }
