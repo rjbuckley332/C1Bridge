@@ -12,6 +12,7 @@ struct SongSetupView: View {
     @ObservedObject private var beat = BeatPlayer.shared
     @ObservedObject private var beatLibrary = BeatLibrary.shared
     @ObservedObject private var looper = LooperEngine.shared
+    @ObservedObject private var strum = StrumPlayer.shared
     @State private var searchText = ""
     @State private var presetName = ""
     @FocusState private var nameFieldFocused: Bool
@@ -238,6 +239,20 @@ struct SongSetupView: View {
             .font(.subheadline)
 
             HStack {
+                Text("🎸 332 Strum")
+                    .font(.subheadline)
+                Spacer()
+                Text(strum.isPlaying ? "playing @ \(strum.currentBPM) BPM" : "front paddle, or Start to preview")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(strum.isPlaying ? "Stop" : "Start") { voice.setStrum(!strum.isPlaying) }
+                    .buttonStyle(.borderedProminent)
+                    .tint(strum.isPlaying ? .red : .green)
+            }
+
+            Toggle("Include strum in recipe", isOn: $voice.strumInRecipe)
+                .font(.subheadline)
+
+            HStack {
                 Text("Drums Vol")
                 Spacer()
                 if let d = voice.drumVol {
@@ -334,6 +349,9 @@ struct SongSetupView: View {
             } else {
                 lines.append("Beat \(BeatPlayer.shared.currentPattern.rawValue) on load — Ch 10 · PC 2 (stop: PC 3)")
             }
+        }
+        if voice.strumInRecipe {
+            lines.append("🎸 332 Strum on load (or hit the front paddle live)")
         }
         return lines.isEmpty ? "Nothing yet." : lines.joined(separator: "\n")
     }
@@ -591,6 +609,7 @@ struct SongSetupView: View {
         if let k = p.keyLabel { bits.append("Key \(k)") }
         if let t = p.tempoBPM { bits.append("\(t) BPM") }
         if p.beatEnabled { bits.append(p.customBeatName.map { "Beat ♪\($0)" } ?? (p.beatPattern.map { "Beat \($0)" } ?? "Beat")) }
+        if p.strumEnabled { bits.append("Strum 🎸") }
         return bits.isEmpty ? "(empty)" : bits.joined(separator: " · ")
     }
 }

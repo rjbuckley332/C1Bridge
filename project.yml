@@ -15,7 +15,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: ai.reachhigher.C1Bridge
         MARKETING_VERSION: "1.2"
-        CURRENT_PROJECT_VERSION: "76"
+        CURRENT_PROJECT_VERSION: "77"
         SWIFT_EMIT_LOC_STRINGS: YES
         SWIFT_VERSION: "5.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"

@@ -61,6 +61,10 @@ final class VoiceCommandManager: ObservableObject {
     /// "My beats") instead of a built-in pattern. Stored on the preset;
     /// takes precedence at fire time.
     @Published var customBeatName: String? = nil
+    /// "Include strum in recipe" toggle (build 77) — saved into the preset;
+    /// the strum layer starts when the song fires. The front paddle can
+    /// always start it live regardless.
+    @Published var strumInRecipe = false
     /// Combined Beat-style picker selection: "builtin:<rawValue>" or "custom:<name>".
     var beatStyleSelection: String {
         get { customBeatName.map { "custom:\($0)" } ?? "builtin:\(BeatPlayer.shared.currentPattern.rawValue)" }
@@ -1072,6 +1076,20 @@ final class VoiceCommandManager: ObservableObject {
         haptic()
     }
 
+    /// Strum layer preview row in Song Setup (build 77). Same tempo source as
+    /// the beat row: the tempo field, else the last tempo sent.
+    func setStrum(_ on: Bool) {
+        if on {
+            let bpm = tempoBPM ?? MIDIHandler.lastSentTempoBPM
+            StrumPlayer.shared.start(bpm: bpm)
+            statusLine = "Strum layer on — 332 Strum @ \(bpm) BPM."
+        } else {
+            StrumPlayer.shared.stop()
+            statusLine = "Strum layer off."
+        }
+        haptic()
+    }
+
     func setTempo(_ bpm: Int) {
         tempoBPM = bpm
         MIDIHandler.triggerTempo(bpm: bpm)
@@ -1107,7 +1125,8 @@ final class VoiceCommandManager: ObservableObject {
             bassVol: bassVol,
             beatEnabled: beatInRecipe,
             beatPattern: (beatInRecipe && customBeatName == nil) ? BeatPlayer.shared.currentPattern.rawValue : nil,
-            customBeatName: beatInRecipe ? customBeatName : nil
+            customBeatName: beatInRecipe ? customBeatName : nil,
+            strumEnabled: strumInRecipe
         )
         let number = PresetStore.shared.add(preset)
         statusLine = "Saved \"\(preset.name)\" as song #\(number) — in OnSong: Ch 16 · PC \(number)."
@@ -1131,6 +1150,7 @@ final class VoiceCommandManager: ObservableObject {
         if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
             BeatPlayer.shared.currentPattern = p
         }
+        strumInRecipe = preset.strumEnabled
         candidate = nil
         statusLine = "Editing \"\(preset.name)\" — make changes, then save with the same name."
     }
@@ -1149,6 +1169,7 @@ final class VoiceCommandManager: ObservableObject {
         if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
             BeatPlayer.shared.currentPattern = p
         }
+        strumInRecipe = preset.strumEnabled
         candidate = nil
         PresetStore.shared.apply(preset)
         statusLine = "Loaded \"\(preset.name)\" — sending to the C1."

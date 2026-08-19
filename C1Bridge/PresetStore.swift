@@ -47,9 +47,14 @@ struct SongPreset: Identifiable, Codable, Hashable {
     /// Takes precedence over beatPattern. Name is the identity in BeatLibrary
     /// (re-saving a beat under the same name updates every referencing preset).
     var customBeatName: String? = nil
+    /// Start the paddle strum layer ("332 Strum", build 76) when this preset
+    /// loads. Independent of beatEnabled — drums and strums LAYER (the "332
+    /// Railtree Hill Rd" arrangement). Optional-with-default so pre-strum
+    /// JSON decodes as false.
+    var strumEnabled: Bool = false
     var triggerNumber: Int = 0 // 0 = legacy/unassigned; migration fills it
 
-    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, customBeatName: String? = nil, triggerNumber: Int = 0) {
+    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, customBeatName: String? = nil, strumEnabled: Bool = false, triggerNumber: Int = 0) {
         self.id = id
         self.name = name
         self.patterns = patterns
@@ -61,6 +66,7 @@ struct SongPreset: Identifiable, Codable, Hashable {
         self.beatEnabled = beatEnabled
         self.beatPattern = beatPattern
         self.customBeatName = customBeatName
+        self.strumEnabled = strumEnabled
         self.triggerNumber = triggerNumber
     }
 
@@ -77,6 +83,7 @@ struct SongPreset: Identifiable, Codable, Hashable {
         beatEnabled = try c.decodeIfPresent(Bool.self, forKey: .beatEnabled) ?? false
         beatPattern = try c.decodeIfPresent(String.self, forKey: .beatPattern)
         customBeatName = try c.decodeIfPresent(String.self, forKey: .customBeatName)
+        strumEnabled = try c.decodeIfPresent(Bool.self, forKey: .strumEnabled) ?? false
         triggerNumber = try c.decodeIfPresent(Int.self, forKey: .triggerNumber) ?? 0
     }
 }
@@ -186,6 +193,12 @@ final class PresetStore: ObservableObject {
                     }
                     BeatPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
                 }
+            }
+            // Strum layer rides the recipe too (build 77): starts after the
+            // closing tempo landed so it's banked; layers with whatever beat
+            // started — drums + strums = the arrangement.
+            if preset.strumEnabled {
+                StrumPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
             }
         }
     }
