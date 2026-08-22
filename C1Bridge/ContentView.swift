@@ -23,6 +23,10 @@ struct ContentView: View {
                 .tabItem { Label("Beat", systemImage: "hand.tap") }
                 .tag(1)
 
+            strumBeatsView
+                .tabItem { Label("Strums", systemImage: "music.quarternote.3") }
+                .tag(8)
+
             logView
                 .tabItem { Label("Activity", systemImage: "list.bullet.rectangle") }
                 .tag(2)
@@ -89,6 +93,11 @@ struct ContentView: View {
     // MARK: - Beat Setup (stage 2: fretboard-on-screen validation)
     private var beatSetupView: some View {
         BeatSetupView()
+    }
+
+    // MARK: - Guitar Beats (strum-pattern editor, build 90)
+    private var strumBeatsView: some View {
+        StrumBeatsView()
     }
 
     // MARK: - Sync (OnSong song backup/restore)

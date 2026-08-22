@@ -65,6 +65,19 @@ final class VoiceCommandManager: ObservableObject {
     /// the strum layer starts when the song fires. The front paddle can
     /// always start it live regardless.
     @Published var strumInRecipe = false
+    /// Attached Guitar-Beats strum (build 90) — nil = no named strum.
+    @Published var customStrumName: String? = nil
+    /// Picker binding: "none" or "custom:<name>" (mirrors beatStyleSelection).
+    var strumBeatSelection: String {
+        get { customStrumName.map { "custom:\($0)" } ?? "none" }
+        set {
+            if newValue.hasPrefix("custom:") {
+                customStrumName = String(newValue.dropFirst("custom:".count))
+            } else {
+                customStrumName = nil
+            }
+        }
+    }
     /// Combined Beat-style picker selection: "builtin:<rawValue>" or "custom:<name>".
     var beatStyleSelection: String {
         get { customBeatName.map { "custom:\($0)" } ?? "builtin:\(BeatPlayer.shared.currentPattern.rawValue)" }
@@ -609,6 +622,7 @@ final class VoiceCommandManager: ObservableObject {
         candidate = nil
         beatInRecipe = false
         customBeatName = nil
+        customStrumName = nil
         statusLine = "Cleared — fresh song."
     }
 
@@ -1081,13 +1095,24 @@ final class VoiceCommandManager: ObservableObject {
     func setStrum(_ on: Bool) {
         if on {
             let bpm = tempoBPM ?? MIDIHandler.lastSentTempoBPM
-            StrumPlayer.shared.start(bpm: bpm)
-            statusLine = "Strum layer on — 332 Strum @ \(bpm) BPM."
+            // Preview the PICKER's selection (build 92): a named strum from
+            // My Strums, or the baked 332 when the picker says None.
+            let sp = customStrumName.flatMap { StrumBeatLibrary.shared.pattern(named: $0) }
+            StrumPlayer.shared.preview(bpm: bpm, pattern: sp)
+            statusLine = "Strum layer on — \(sp.map { "♪\($0.name)" } ?? "332 Strum") @ \(bpm) BPM."
         } else {
             StrumPlayer.shared.stop()
             statusLine = "Strum layer off."
         }
         haptic()
+    }
+
+    /// Strum-beat picker changed mid-preview (Rich 11:52: "it doesn't
+    /// change") — restart the preview with the new selection. Stopped stays
+    /// stopped; a playing loop follows the picker.
+    func noteStrumBeatSelectionChanged() {
+        guard StrumPlayer.shared.isPlaying, !StrumPlayer.shared.auditioning else { return }
+        setStrum(true)
     }
 
     func setTempo(_ bpm: Int) {
@@ -1126,7 +1151,8 @@ final class VoiceCommandManager: ObservableObject {
             beatEnabled: beatInRecipe,
             beatPattern: (beatInRecipe && customBeatName == nil) ? BeatPlayer.shared.currentPattern.rawValue : nil,
             customBeatName: beatInRecipe ? customBeatName : nil,
-            strumEnabled: strumInRecipe
+            strumEnabled: strumInRecipe,
+            customStrumName: customStrumName
         )
         let number = PresetStore.shared.add(preset)
         statusLine = "Saved \"\(preset.name)\" as song #\(number) — in OnSong: Ch 16 · PC \(number)."
@@ -1151,6 +1177,7 @@ final class VoiceCommandManager: ObservableObject {
             BeatPlayer.shared.currentPattern = p
         }
         strumInRecipe = preset.strumEnabled
+        customStrumName = preset.customStrumName
         candidate = nil
         statusLine = "Editing \"\(preset.name)\" — make changes, then save with the same name."
     }
@@ -1170,6 +1197,7 @@ final class VoiceCommandManager: ObservableObject {
             BeatPlayer.shared.currentPattern = p
         }
         strumInRecipe = preset.strumEnabled
+        customStrumName = preset.customStrumName
         candidate = nil
         PresetStore.shared.apply(preset)
         statusLine = "Loaded \"\(preset.name)\" — sending to the C1."

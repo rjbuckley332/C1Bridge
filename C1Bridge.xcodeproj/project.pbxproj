@@ -19,6 +19,7 @@
 		2DEAFE8FE63691F7399B643A /* n42.caf in Resources */ = {isa = PBXBuildFile; fileRef = 88D60AE3A65461A3654F3A67 /* n42.caf */; };
 		2E0B80C42B7D45577BE4B954 /* n55.caf in Resources */ = {isa = PBXBuildFile; fileRef = 7A76EE83993DDFF1976F6ACA /* n55.caf */; };
 		3000A799E76EEE9ABDFE3C86 /* SuggestedTempoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B03C074777A053D6BE84C69 /* SuggestedTempoStore.swift */; };
+		319C8ED57563171683513F31 /* StrumBeatLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = DADF689F42DAAA621C198A7D /* StrumBeatLibrary.swift */; };
 		34014180BBBEE6871F95DDC9 /* n38.caf in Resources */ = {isa = PBXBuildFile; fileRef = 3A0BE8608096E09C5E22D40B /* n38.caf */; };
 		3D58B3BD286903E537172CBA /* PatternLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7FE8CA2CEB793CAAC8D79056 /* PatternLibrary.swift */; };
 		410B3190C5F5A94D9960CBAE /* n63.caf in Resources */ = {isa = PBXBuildFile; fileRef = 2F6D6C87F8888E5E3E1B8D80 /* n63.caf */; };
@@ -55,6 +56,7 @@
 		C39FB63B83AD119ECA3D1BBB /* n41.caf in Resources */ = {isa = PBXBuildFile; fileRef = 94B39FE4827C4ED5513218F0 /* n41.caf */; };
 		C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35A9774CF1858FF858FE7190 /* PayloadUtils.swift */; };
 		CD6D84BCE9E96B7AEDCC0FED /* VoiceCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED8A98A8FF809A4428872BE6 /* VoiceCommandManager.swift */; };
+		CD7200E5B09749B9406020B9 /* StrumBeatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B64567908A2E0192180CE2D /* StrumBeatsView.swift */; };
 		D0E5E922742CDAC4E9148F08 /* StrumPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C14D7B0D934298CC29245A6 /* StrumPlayer.swift */; };
 		D55461469E8CA46E73F83462 /* n53.caf in Resources */ = {isa = PBXBuildFile; fileRef = A1A5BB160B148567F20975DF /* n53.caf */; };
 		D7184FACDA82F88A73E94001 /* SyncView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07D8F7D3E8CD6BADABF3168 /* SyncView.swift */; };
@@ -99,6 +101,7 @@
 		535323137AC887F1262B1969 /* BeatPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeatPlayer.swift; sourceTree = "<group>"; };
 		54D45EC975B6E5C272EC8A00 /* n48.caf */ = {isa = PBXFileReference; path = n48.caf; sourceTree = "<group>"; };
 		61D48F02D4748E87A66A71B2 /* n50.caf */ = {isa = PBXFileReference; path = n50.caf; sourceTree = "<group>"; };
+		6B64567908A2E0192180CE2D /* StrumBeatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrumBeatsView.swift; sourceTree = "<group>"; };
 		729B0728290B77A22D553B31 /* n47.caf */ = {isa = PBXFileReference; path = n47.caf; sourceTree = "<group>"; };
 		7A76EE83993DDFF1976F6ACA /* n55.caf */ = {isa = PBXFileReference; path = n55.caf; sourceTree = "<group>"; };
 		7AFDE16D357AF1921DE23582 /* strum_a.caf */ = {isa = PBXFileReference; path = strum_a.caf; sourceTree = "<group>"; };
@@ -128,6 +131,7 @@
 		C5B0F6D916437CE9EBC49E8A /* n61.caf */ = {isa = PBXFileReference; path = n61.caf; sourceTree = "<group>"; };
 		CCA810CEC2A1D368E94789BA /* n64.caf */ = {isa = PBXFileReference; path = n64.caf; sourceTree = "<group>"; };
 		D568B76A0D9879217511160B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DADF689F42DAAA621C198A7D /* StrumBeatLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StrumBeatLibrary.swift; sourceTree = "<group>"; };
 		DB7D82882D76B913A993D120 /* n67.caf */ = {isa = PBXFileReference; path = n67.caf; sourceTree = "<group>"; };
 		E53511EC7FB602315101FEF8 /* n65.caf */ = {isa = PBXFileReference; path = n65.caf; sourceTree = "<group>"; };
 		E535164D5605A92869596A10 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
@@ -165,6 +169,8 @@
 				35A9774CF1858FF858FE7190 /* PayloadUtils.swift */,
 				B476EF9C5CC8D75E63F5321A /* PresetStore.swift */,
 				08453A95BE07A1EE056792D2 /* SongSetupView.swift */,
+				DADF689F42DAAA621C198A7D /* StrumBeatLibrary.swift */,
+				6B64567908A2E0192180CE2D /* StrumBeatsView.swift */,
 				2C14D7B0D934298CC29245A6 /* StrumPlayer.swift */,
 				3B03C074777A053D6BE84C69 /* SuggestedTempoStore.swift */,
 				C07D8F7D3E8CD6BADABF3168 /* SyncView.swift */,
@@ -373,6 +379,8 @@
 				C6B23A3DF3A4BF75F9FB2A4B /* PayloadUtils.swift in Sources */,
 				44039DE5EE6464A6D110F9D3 /* PresetStore.swift in Sources */,
 				B08340F92668C2C73332E36C /* SongSetupView.swift in Sources */,
+				319C8ED57563171683513F31 /* StrumBeatLibrary.swift in Sources */,
+				CD7200E5B09749B9406020B9 /* StrumBeatsView.swift in Sources */,
 				D0E5E922742CDAC4E9148F08 /* StrumPlayer.swift in Sources */,
 				3000A799E76EEE9ABDFE3C86 /* SuggestedTempoStore.swift in Sources */,
 				D7184FACDA82F88A73E94001 /* SyncView.swift in Sources */,
@@ -389,7 +397,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 88;
+				CURRENT_PROJECT_VERSION = 114;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -412,7 +420,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 88;
+				CURRENT_PROJECT_VERSION = 114;
 				DEVELOPMENT_TEAM = XB8JG6VJUS;
 				INFOPLIST_FILE = C1Bridge/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

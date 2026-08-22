@@ -55,7 +55,13 @@ final class BackgroundAudioManager: ObservableObject {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, options: [.mixWithOthers])
+            // Rich 8/20 7:37 — "a little latency with the paddle press". The
+            // default ~21-23ms render quantum + output latency is a fixed tax
+            // on every paddle hit; ask for a 5ms buffer (iOS clamps if the
+            // route can't do it — the log shows what we actually got).
+            try session.setPreferredIOBufferDuration(0.005)
             try session.setActive(true)
+            AppModel.shared.addLog(String(format: "Audio ioBuffer %.1fms outLatency %.1fms", session.ioBufferDuration * 1000, session.outputLatency * 1000))
         } catch {
             AppModel.shared.addLog("Audio session error: \(error.localizedDescription)")
         }

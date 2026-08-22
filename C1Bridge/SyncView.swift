@@ -58,7 +58,7 @@ struct SyncView: View {
             }
 
             Section("How it works") {
-                Text("All C1 Bridge data — songs, favorites, suggested tempos, beats — is encoded into one OnSong song named \"C1 Bridge\". OnSong's own sync carries it between your devices.\n\nOnSong must be OPEN and ON SCREEN for backup/restore to reach it — the same moments C1 Bridge rides in the background. Changes auto-backup ~20s after you make them. If another device left a newer backup, you'll be asked before anything is replaced.")
+                Text("All C1 Bridge data — songs, favorites, suggested tempos, beats, strums — is encoded into one OnSong song named \"C1 Bridge\". OnSong's own sync carries it between your devices.\n\nOnSong must be OPEN and ON SCREEN for backup/restore to reach it — the same moments C1 Bridge rides in the background. Changes auto-backup ~20s after you make them. If another device left a newer backup, you'll be asked before anything is replaced.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

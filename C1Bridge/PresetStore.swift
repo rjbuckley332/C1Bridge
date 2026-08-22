@@ -52,9 +52,15 @@ struct SongPreset: Identifiable, Codable, Hashable {
     /// Railtree Hill Rd" arrangement). Optional-with-default so pre-strum
     /// JSON decodes as false.
     var strumEnabled: Bool = false
+    /// A named strum from the Guitar Beats tab (build 90) — arms the paddle
+    /// with that pattern on load. Supersedes strumEnabled (the baked 332).
+    /// Name is the identity in StrumBeatLibrary (re-saving a strum under the
+    /// same name updates every referencing preset). Optional so pre-90 JSON
+    /// decodes as nil.
+    var customStrumName: String? = nil
     var triggerNumber: Int = 0 // 0 = legacy/unassigned; migration fills it
 
-    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, customBeatName: String? = nil, strumEnabled: Bool = false, triggerNumber: Int = 0) {
+    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, customBeatName: String? = nil, strumEnabled: Bool = false, customStrumName: String? = nil, triggerNumber: Int = 0) {
         self.id = id
         self.name = name
         self.patterns = patterns
@@ -67,6 +73,7 @@ struct SongPreset: Identifiable, Codable, Hashable {
         self.beatPattern = beatPattern
         self.customBeatName = customBeatName
         self.strumEnabled = strumEnabled
+        self.customStrumName = customStrumName
         self.triggerNumber = triggerNumber
     }
 
@@ -84,6 +91,7 @@ struct SongPreset: Identifiable, Codable, Hashable {
         beatPattern = try c.decodeIfPresent(String.self, forKey: .beatPattern)
         customBeatName = try c.decodeIfPresent(String.self, forKey: .customBeatName)
         strumEnabled = try c.decodeIfPresent(Bool.self, forKey: .strumEnabled) ?? false
+        customStrumName = try c.decodeIfPresent(String.self, forKey: .customStrumName)
         triggerNumber = try c.decodeIfPresent(Int.self, forKey: .triggerNumber) ?? 0
     }
 }
@@ -205,7 +213,21 @@ final class PresetStore: ObservableObject {
             // recipe ARMS the front-paddle toggle — no auto-start ("plays
             // only when I toggle"); any other recipe disarms it (and a
             // playing layer stops with the song change).
-            StrumPlayer.shared.setArmed(preset.strumEnabled, bpm: preset.tempoBPM)
+            // Strum layer rides the recipe (build 83 semantics): a strum
+            // recipe ARMS the front-paddle toggle — no auto-start ("plays
+            // only when I toggle"); any other recipe disarms it (and a
+            // playing layer stops with the song change). A named Guitar-Beats
+            // strum (build 90) supersedes the baked 332 toggle.
+            if let csName = preset.customStrumName {
+                if let sp = StrumBeatLibrary.shared.pattern(named: csName) {
+                    StrumPlayer.shared.setArmed(true, bpm: preset.tempoBPM, pattern: sp)
+                } else {
+                    AppModel.shared.addLog("Strum beat \"\(csName)\" not found — check My Strums")
+                    StrumPlayer.shared.setArmed(preset.strumEnabled, bpm: preset.tempoBPM)
+                }
+            } else {
+                StrumPlayer.shared.setArmed(preset.strumEnabled, bpm: preset.tempoBPM)
+            }
         }
     }
 

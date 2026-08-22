@@ -21,6 +21,9 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     ///   byte[13] = note flag — 0/1 per position (meaning TBD). 0xff = idle.
     @Published var fretMask: UInt8 = 0
     @Published var paddleByte: UInt8 = 0
+    /// Guitar's own tempo byte (FF01 byte[7]: 0x50=80 … 0x82=130) — feeds
+    /// StrumPlayer.noteGuitarBpm so the fallback-tempo one-shot stays fresh.
+    private var guitarBpmByte: UInt8 = 0
     @Published var noteStepByte: UInt8 = 0xff
     @Published var noteFlagByte: UInt8 = 0xff
 
@@ -265,6 +268,14 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
     /// = drum transition between the two stored variations; slide = stop with
     /// a closing lick — but the wire sends one identical pulse for each).
     private var byte5_40RiseAt: Date?
+    /// Press/slide recon (build 94→101): rise time + value of the current
+    /// STRUM-paddle press; the fall (byte[5] back to 0 = pedal returned to
+    /// normal) measures the hold duration. A LONG 0x40 hold (>0.6s) is the
+    /// mute SLIDE — the instrument's own stop gesture — and chokes the
+    /// ringing strum (build 101, Rich 06:56). Shorter holds just log the
+    /// duration. Set only when the rise routed to paddleStrum.
+    private var strumPaddleRiseAt: Date?
+    private var strumPaddleRiseValue: UInt8 = 0
     /// Last time the byte[1] beat-alive flag changed. Used to suppress drum-
     /// button false triggers: paddle-starting drums pulses byte[5] (hit
     /// velocities) in the same instant the byte[1] flag flips (recon 2026-08-13).
@@ -312,7 +323,8 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
             // including the baseline frame that returns early below.
             if fretMask != bytes[4] { fretMask = bytes[4]; StrumPlayer.shared.noteFretMask(bytes[4]) }
             if paddleByte != bytes[5] { paddleByte = bytes[5] }
-            if noteStepByte != bytes[12] { noteStepByte = bytes[12] }
+            if guitarBpmByte != bytes[7] { guitarBpmByte = bytes[7]; StrumPlayer.shared.noteGuitarBpm(Int(bytes[7])) }
+            if noteStepByte != bytes[12] { noteStepByte = bytes[12]; StrumPlayer.shared.noteGuitarNote(note: bytes[12], fretMask: bytes[4]) }
             if noteFlagByte != bytes[13] { noteFlagByte = bytes[13] }
             var masked = bytes
             masked[9] = 0; masked[10] = 0; masked[11] = 0
@@ -419,7 +431,13 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                         guitarDrumsPlaying = true
                         startBeatFromGuitar(guitarBpm: Int(bytes[7]), reason: "paddle start")
                     }
-                } else if v == 0x40 {
+                } else if v == 0x40 && !(StrumPlayer.shared.armed && bytes[4] != 0) {
+                    // (build 92) a 0x40 rise with the strum ARMED and a fret
+                    // held is a HARD paddle hit, never the mute pad — hard
+                    // hits read exactly 0x40 and died in the mute guards
+                    // (Rich 11:56: "poor results when I strum the pedal").
+                    // Real mute presses (frets off / strum disarmed) keep the
+                    // old guarded path below.
                     byte5_40RiseAt = now
                     if guitarDrumsPlaying {
                         // MUTE PRESS WITH DRUMS PLAYING (build 51). Rich 15:39:
@@ -486,9 +504,25 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                     // STRUM PADDLE HIT (build 84): beat pad NOT held and the
                     // pulse isn't a mute-pad 0x40 → play ONE strum cycle in
                     // the current chord. Only when a strum recipe armed it.
-                    StrumPlayer.shared.paddleStrum(guitarBpm: Int(bytes[7]))
+                    if StrumPlayer.shared.armed { strumPaddleRiseAt = now; strumPaddleRiseValue = v }
+                    StrumPlayer.shared.paddleStrum(guitarBpm: Int(bytes[7]), velocity: Int(v))
                 }
                 lastByte5RiseAt = now
+            }
+            // PEDAL RETURN / MUTE SLIDE (build 101): any byte[5] fall to 0
+            // ends the press. A LONG 0x40 hold was a SLIDE — choke the
+            // ringing strum (a tap and a hard hit share 0x40 on the wire,
+            // but a drag is unambiguous — the instrument's own stop gesture).
+            if last[5] != 0 && bytes[5] == 0, let riseAt = strumPaddleRiseAt {
+                let riseV = strumPaddleRiseValue
+                strumPaddleRiseAt = nil
+                strumPaddleRiseValue = 0
+                let held = Date().timeIntervalSince(riseAt)
+                if riseV == 0x40 && held > 0.6 {
+                    StrumPlayer.shared.choke()
+                } else {
+                    StrumPlayer.shared.notePedalPress(held)
+                }
             }
             // PULSE-WIDTH PROBE (build 46): log how long a 0x40 was held.
             // Hypothesis: slide = long drag, tap = short press. If the widths

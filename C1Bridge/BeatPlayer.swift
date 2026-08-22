@@ -54,6 +54,27 @@ final class BeatPlayer: ObservableObject {
 
     @Published private(set) var isPlaying = false
     @Published private(set) var currentBPM = 0
+    /// Host time of bar 0 of the running loop (build 114 — the strum grid
+    /// anchor). Set at loop (re)start; fills resume on the same grid
+    /// (.interruptsAtLoop), so it survives fills. Queried only while playing.
+    private(set) var gridAnchorHostTime: UInt64? = nil
+
+    /// The drum's 16th-note grid in host time (build 114 — Rich 07:47
+    /// "Please build it", on Bluetooth): the smallest 16th boundary at or
+    /// after now + leadSeconds, or nil when no loop is running. The strum
+    /// schedules its down there — the lag hides in the wait and the down
+    /// lands exactly on the grid no matter how big the latency is.
+    func nextGrid16HostTime(leadSeconds: Double) -> UInt64? {
+        guard self.isPlaying, let anchor = self.gridAnchorHostTime, self.currentBPM > 0 else { return nil }
+        let sixteenthTicks = AVAudioTime.hostTime(forSeconds: 60.0 / Double(self.currentBPM) / 4.0)
+        guard sixteenthTicks > 0 else { return nil }
+        let now = mach_absolute_time()
+        let target = now &+ AVAudioTime.hostTime(forSeconds: max(0, leadSeconds))
+        guard target > anchor else { return anchor }
+        let elapsed = target - anchor
+        let k = (elapsed + sixteenthTicks - 1) / sixteenthTicks
+        return anchor &+ k &* sixteenthTicks
+    }
     /// The pattern every start() renders. Persisted; presets snapshot/restore it.
     @Published var currentPattern: BeatPattern {
         didSet {
@@ -98,6 +119,7 @@ final class BeatPlayer: ObservableObject {
             self.player.scheduleBuffer(bar, at: nil, options: .loops, completionHandler: nil)
             self.currentLoopBuffer = bar
             self.player.play()
+            self.gridAnchorHostTime = mach_absolute_time() // build 114: strum grid anchor (bar 0 ≈ now, ±1 render quantum)
             self.isPlaying = true
             self.currentBPM = clamped
             self.playingPattern = self.currentPattern

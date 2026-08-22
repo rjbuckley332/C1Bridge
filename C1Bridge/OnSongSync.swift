@@ -28,6 +28,9 @@ struct SyncPayload: Codable {
     var favorites: [PatternRef]
     var suggestedTempos: [String: Int]
     var beats: [SavedBeat]
+    /// Guitar-Beats strums (build 90). Optional so pre-90 payloads decode
+    /// cleanly; import guards on non-nil so an old backup never wipes them.
+    var strumPatterns: [StrumPattern]? = nil
 }
 
 enum SyncError: LocalizedError {
@@ -397,7 +400,8 @@ final class OnSongSyncManager: NSObject, ObservableObject {
             presets: PresetStore.shared.exportForSync(),
             favorites: FavoritesStore.shared.exportForSync(),
             suggestedTempos: SuggestedTempoStore.shared.exportForSync(),
-            beats: BeatLibrary.shared.exportForSync()
+            beats: BeatLibrary.shared.exportForSync(),
+            strumPatterns: StrumBeatLibrary.shared.exportForSync()
         )
     }
 
@@ -460,6 +464,7 @@ final class OnSongSyncManager: NSObject, ObservableObject {
         FavoritesStore.shared.importFromSync(offer.payload.favorites)
         SuggestedTempoStore.shared.importFromSync(offer.payload.suggestedTempos)
         BeatLibrary.shared.importFromSync(offer.payload.beats)
+        if let sp = offer.payload.strumPatterns { StrumBeatLibrary.shared.importFromSync(sp) }
         importInProgress = false
         lastRestoreAt = Date()
         defaults.set(lastRestoreAt, forKey: kLastRestore)

@@ -13,6 +13,7 @@ struct SongSetupView: View {
     @ObservedObject private var beatLibrary = BeatLibrary.shared
     @ObservedObject private var looper = LooperEngine.shared
     @ObservedObject private var strum = StrumPlayer.shared
+    @ObservedObject private var strumLibrary = StrumBeatLibrary.shared
     @State private var searchText = ""
     @State private var presetName = ""
     @FocusState private var nameFieldFocused: Bool
@@ -239,7 +240,7 @@ struct SongSetupView: View {
             .font(.subheadline)
 
             HStack {
-                Text("🎸 332 Strum")
+                Text(voice.customStrumName.map { "🎸 \($0)" } ?? "🎸 332 Strum")
                     .font(.subheadline)
                 Spacer()
                 Text(strum.isPlaying ? "\(strum.chordName) @ \(strum.currentBPM) BPM — follows your frets" : (strum.armed ? "armed — each paddle hit strums once" : "Start to preview · in a recipe, the paddle plays it per hit"))
@@ -251,6 +252,19 @@ struct SongSetupView: View {
 
             Toggle("Include strum in recipe", isOn: $voice.strumInRecipe)
                 .font(.subheadline)
+
+            Picker("Strum beat", selection: $voice.strumBeatSelection) {
+                Text("None — paddle plays the 332 strum above").tag("none")
+                if !strumLibrary.patterns.isEmpty {
+                    Section("My strums") {
+                        ForEach(strumLibrary.patterns) { sp in
+                            Text("♪ \(sp.name) — \(sp.sigLabel) · \(sp.hits.count) strums").tag("custom:\(sp.name)")
+                        }
+                    }
+                }
+            }
+            .font(.subheadline)
+            .onChange(of: voice.strumBeatSelection) { _ in voice.noteStrumBeatSelectionChanged() }
 
             HStack {
                 Text("Drums Vol")
@@ -352,6 +366,9 @@ struct SongSetupView: View {
         }
         if voice.strumInRecipe {
             lines.append("🎸 332 Strum — front paddle plays it per hit")
+        }
+        if let cs = voice.customStrumName {
+            lines.append("Strum beat \"\(cs)\" (my strum) — paddle plays it per hit")
         }
         return lines.isEmpty ? "Nothing yet." : lines.joined(separator: "\n")
     }
@@ -610,6 +627,7 @@ struct SongSetupView: View {
         if let t = p.tempoBPM { bits.append("\(t) BPM") }
         if p.beatEnabled { bits.append(p.customBeatName.map { "Beat ♪\($0)" } ?? (p.beatPattern.map { "Beat \($0)" } ?? "Beat")) }
         if p.strumEnabled { bits.append("Strum 🎸") }
+        if let cs = p.customStrumName { bits.append("Strum ♪\(cs)") }
         return bits.isEmpty ? "(empty)" : bits.joined(separator: " · ")
     }
 }
