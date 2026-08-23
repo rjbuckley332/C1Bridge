@@ -56,6 +56,14 @@ final class StrumPlayer: ObservableObject {
         return voiceChord()
     }
     private static let majorScale = [0, 2, 4, 5, 7, 9, 11]
+    /// Build 121: precomputed re-strike damp curve (τ≈45ms, 0.4s). The old
+    /// per-sample exp() loop was part of the Debug-build render cost that
+    /// put ~180ms between Rich's press and the strum.
+    private static let dampCurve: [Float] = {
+        let n = Int(0.40 * StrumPlayer.sr)
+        let tau = 0.045 * StrumPlayer.sr
+        return (0..<n).map { Float(exp(-Double($0) / tau)) }
+    }()
     private static let pcNames = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
 
     /// Diatonic triad for a degree in a major key: (third semitones, fifth semitones).
@@ -320,7 +328,11 @@ final class StrumPlayer: ObservableObject {
             self.lastPressAt = now
             self.pressTempoBPM = bpm
             self.updateChordName()
+            // Build 121 (diagnostic): split render time out of press→fire so
+            // the vDSP fix is measurable on-device.
+            let rStart = Date.timeIntervalSinceReferenceDate
             guard let buf = self.renderOneShot(bpm: bpm, main: self.currentVoicing()) else { return }
+            let renderMs = (Date.timeIntervalSinceReferenceDate - rStart) * 1000
             self.installGraphIfNeeded()
             if !self.engine.isRunning { try? self.engine.start() }
             self.player.stop()
@@ -350,7 +362,7 @@ final class StrumPlayer: ObservableObject {
                 let sess = AVAudioSession.sharedInstance()
                 let lag = (Date.timeIntervalSinceReferenceDate - t0) * 1000
                 let tail = (sess.ioBufferDuration + sess.outputLatency) * 1000
-                AppModel.shared.addLog(String(format: "⏱ press→fire %.0fms + audio tail %.0fms ≈ %.0fms to ear (%@)", lag, tail, lag + tail, source))
+                AppModel.shared.addLog(String(format: "⏱ press→fire %.0fms (render %.0f) + tail %.0fms ≈ %.0fms to ear (%@)", lag, renderMs, tail, lag + tail, source))
             }
     }
 
@@ -898,17 +910,15 @@ final class StrumPlayer: ObservableObject {
             // Re-strike damping: choke everything still ringing under the new
             // attack (τ≈45ms, bounded to 0.4s — beyond that it's inaudible).
             if start > 0 {
-                let dampFrames = min(totalFrames - start, Int(0.40 * Self.sr))
-                let dampTau = 0.045 * Self.sr
-                for f in 0..<dampFrames {
-                    out[start + f] *= Float(exp(-Double(f) / dampTau))
-                }
+                let dampFrames = min(totalFrames - start, Self.dampCurve.count)
+                vDSP_vmul(out + start, 1, Self.dampCurve, 1, out + start, 1, vDSP_Length(dampFrames))
             }
             // Back to build 101 verbatim (Rich 8/22 03:53: "let's start at
             // 101 again"): no anti-hang decay shaping — every strum rings its
             // FULL natural length; only the re-strike damping above remains.
             let n = min(Int(take.frameLength), totalFrames - start)
-            for f in 0..<max(0, n) { out[start + f] += src[f] * gain }
+            // Build 121: vDSP — same math, vectorized (was per-sample Debug loop)
+            if n > 0 { var g = gain; vDSP_vsma(src, 1, &g, out + start, 1, out + start, 1, vDSP_Length(n)) }
         }
         var peak: Float = 0
         vDSP_maxmgv(out, 1, &peak, vDSP_Length(totalFrames))
@@ -965,7 +975,9 @@ final class StrumPlayer: ObservableObject {
             let start = max(0, Int((t + Double.random(in: -0.0012...0.0012)) * Self.sr))
             let n = min(Int(nb.frameLength), length - start)
             let src = nd[0]
-            for f in 0..<max(0, n) { out[start + f] += src[f] * g }
+            let n2 = min(Int(nb.frameLength), length - start)
+            // Build 121: vDSP — same math, vectorized (was per-sample Debug loop)
+            if n2 > 0 { var gv = g; vDSP_vsma(src, 1, &gv, out + start, 1, out + start, 1, vDSP_Length(n2)) }
             t += spread
         }
         return buf
@@ -999,7 +1011,8 @@ final class StrumPlayer: ObservableObject {
             if remain > 0 {
                 let src = td[0]
                 let c = min(remain, barFrames)
-                for i in 0..<c { out[i] += src[off + i] * gain }
+                // Build 121: vDSP — same math, vectorized (was per-sample Debug loop)
+                if c > 0 { var g = gain; vDSP_vsma(src + off, 1, &g, out, 1, out, 1, vDSP_Length(c)) }
                 kept.append((off + barFrames, take, gain)) // shift for the next bar
             }
         }
@@ -1017,7 +1030,8 @@ final class StrumPlayer: ObservableObject {
             let gain = hit.gain * Float.random(in: 0.94...1.06)
             let start = max(0, Int(hit.pos16 * Double(sixteenthFrames)) + Int(jitterSec * Self.sr))
             let n = min(Int(take.frameLength), barFrames - start)
-            for i in 0..<max(0, n) { out[start + i] += src[i] * gain }
+            // Build 121: vDSP — same math, vectorized (was per-sample Debug loop)
+            if n > 0 { var g = gain; vDSP_vsma(src, 1, &g, out + start, 1, out + start, 1, vDSP_Length(n)) }
             // remember where the NEXT bar resumes inside this take
             let used = n
             if used < Int(take.frameLength) {

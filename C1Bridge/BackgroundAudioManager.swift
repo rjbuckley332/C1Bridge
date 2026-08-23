@@ -45,6 +45,14 @@ final class BackgroundAudioManager: ObservableObject {
             if !player.isPlaying { player.play() }
             isRunning = true
             AppModel.shared.addLog("Keep-alive audio running (\(reason))")
+            // Build 121: route changes silently drop the 5ms buffer back to
+            // the 23ms default (Rich's 120 log: ioBuffer 23.0ms after a route
+            // change). Re-assert once the engine is up and the route settled.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                let s = AVAudioSession.sharedInstance()
+                try? s.setPreferredIOBufferDuration(0.005)
+                AppModel.shared.addLog(String(format: "Audio ioBuffer re-assert: %.1fms outLatency %.1fms", s.ioBufferDuration * 1000, s.outputLatency * 1000))
+            }
         } catch {
             isRunning = false
             AppModel.shared.addLog("Keep-alive start FAILED (\(reason)): \(error.localizedDescription)")
