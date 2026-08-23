@@ -58,9 +58,13 @@ struct SongPreset: Identifiable, Codable, Hashable {
     /// same name updates every referencing preset). Optional so pre-90 JSON
     /// decodes as nil.
     var customStrumName: String? = nil
+    /// A named chord table from the Chords tab (build 118) — arms the chord
+    /// table on load. Name is the identity in ChordTableLibrary.
+    /// Optional so pre-118 JSON decodes as nil.
+    var chordTableName: String? = nil
     var triggerNumber: Int = 0 // 0 = legacy/unassigned; migration fills it
 
-    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, customBeatName: String? = nil, strumEnabled: Bool = false, customStrumName: String? = nil, triggerNumber: Int = 0) {
+    init(id: UUID = UUID(), name: String, patterns: [PatternRef], keyProgram: Int? = nil, keyLabel: String? = nil, tempoBPM: Int? = nil, drumVol: Int? = nil, bassVol: Int? = nil, beatEnabled: Bool = false, beatPattern: String? = nil, customBeatName: String? = nil, strumEnabled: Bool = false, customStrumName: String? = nil, chordTableName: String? = nil, triggerNumber: Int = 0) {
         self.id = id
         self.name = name
         self.patterns = patterns
@@ -74,6 +78,7 @@ struct SongPreset: Identifiable, Codable, Hashable {
         self.customBeatName = customBeatName
         self.strumEnabled = strumEnabled
         self.customStrumName = customStrumName
+        self.chordTableName = chordTableName
         self.triggerNumber = triggerNumber
     }
 
@@ -92,6 +97,7 @@ struct SongPreset: Identifiable, Codable, Hashable {
         customBeatName = try c.decodeIfPresent(String.self, forKey: .customBeatName)
         strumEnabled = try c.decodeIfPresent(Bool.self, forKey: .strumEnabled) ?? false
         customStrumName = try c.decodeIfPresent(String.self, forKey: .customStrumName)
+        chordTableName = try c.decodeIfPresent(String.self, forKey: .chordTableName)
         triggerNumber = try c.decodeIfPresent(Int.self, forKey: .triggerNumber) ?? 0
     }
 }
@@ -227,6 +233,13 @@ final class PresetStore: ObservableObject {
                 }
             } else {
                 StrumPlayer.shared.setArmed(preset.strumEnabled, bpm: preset.tempoBPM)
+            }
+            // Chord table (build 118): arm after strum so the strum arm
+            // doesn't get reordered out of the preset sequence.
+            if let ctName = preset.chordTableName {
+                StrumPlayer.shared.setChordTable(ChordTableLibrary.shared.table(named: ctName))
+            } else {
+                StrumPlayer.shared.setChordTable(nil)
             }
         }
     }

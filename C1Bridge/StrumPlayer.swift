@@ -27,9 +27,6 @@ final class StrumPlayer: ObservableObject {
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
-    /// Acknowledgment-hit player (build 114): the sacrificial strum that
-    /// answers a press instantly while the figure waits for its grid slot.
-    private let ackPlayer = AVAudioPlayerNode()
     private var graphInstalled = false
 
     @Published private(set) var isPlaying = false
@@ -43,6 +40,21 @@ final class StrumPlayer: ObservableObject {
     private var keyRootPC = 0
     /// Scale degree 1-7 currently strummed (from the C1 fret mask).
     private var degree = 1
+    /// Current voicing (name+notes) — set by degree or chord-table path.
+    /// Used as fallback for the one-shot swap and finger-roll logic.
+    /// Build 119 — the current chord SOURCE, voiced fresh at render time.
+    /// nil = degree path (voiceChord() from self.degree); non-nil = a chord-
+    /// table assignment (voiceAssignment). Build 118 froze the voicing at
+    /// press time in `soundingVoicing`, which the renderers never read —
+    /// every pad sounded the stale degree (Rich 21:30: "not strumming").
+    private var activeAssignment: ChordAssignment? = nil
+
+    /// The chord to render RIGHT NOW: the table assignment when one is
+    /// active, else the degree path (pre-table behavior).
+    private func currentVoicing() -> (name: String, notes: [Int]) {
+        if let a = activeAssignment { return voiceAssignment(a) }
+        return voiceChord()
+    }
     private static let majorScale = [0, 2, 4, 5, 7, 9, 11]
     private static let pcNames = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"]
 
@@ -55,16 +67,18 @@ final class StrumPlayer: ObservableObject {
         }
     }
 
-    /// Voice the current chord on 6 strings (E2 A2 D3 G3 B3 E4): root in the
-    /// bass, then each string takes its nearest chord tone (±4 semitones of
-    /// the open string), avoiding immediate pitch-class repeats where it can.
-    private func voiceChord(degree override: Int? = nil) -> (name: String, notes: [Int]) {
-        let deg = override ?? self.degree
-        let rootPC = (keyRootPC + Self.majorScale[deg - 1]) % 12
-        let (t3, t5) = Self.triad(deg)
-        let tones = [rootPC, (rootPC + t3) % 12, (rootPC + t5) % 12]
-        let suffix = t3 == 4 ? "" : (t5 == 6 ? "°" : "m")
-        let name = Self.pcNames[rootPC] + suffix
+    // MARK: - Voicing core (build 118 — the chord-table VOICE PATH)
+
+    /// Core voicing engine — builds the 6-string guitar voicing for any
+    /// chord defined by root pitch class, third, fifth (or flat-7), and name.
+    /// Flat7 ≠ nil → root-3-♭7 (dominant 7th); otherwise root-3-5 triad.
+    private func voiceChord(rootPC: Int, t3: Int, t5: Int, flat7: Int?, name: String) -> (name: String, notes: [Int]) {
+        let tones: [Int]
+        if let f7 = flat7 {
+            tones = [rootPC, (rootPC + t3) % 12, (rootPC + f7) % 12]
+        } else {
+            tones = [rootPC, (rootPC + t3) % 12, (rootPC + t5) % 12]
+        }
         // Root in the bass: 36 + rootPC lands in 36…47 (C2…B2), always inside
         // the note pool (35–67). Build 88 crash fix: the old clamp loops
         // (while >43 −12, while <35 +12) chased each other forever for keys
@@ -88,6 +102,25 @@ final class StrumPlayer: ObservableObject {
             }
         }
         return (name, notes)
+    }
+
+    /// Voice the current chord on 6 strings from the scale degree path
+    /// (build 80 + build 115). Calls the core with the degree-computed tones.
+    private func voiceChord(degree override: Int? = nil) -> (name: String, notes: [Int]) {
+        let deg = override ?? self.degree
+        let rootPC = (keyRootPC + Self.majorScale[deg - 1]) % 12
+        let (t3, t5) = Self.triad(deg)
+        let suffix = t3 == 4 ? "" : (t5 == 6 ? "°" : "m")
+        let name = Self.pcNames[rootPC] + suffix
+        return voiceChord(rootPC: rootPC, t3: t3, t5: t5, flat7: nil, name: name)
+    }
+
+    /// Voice a chord-table assignment (build 118). Looks up the sounding
+    /// root for the current key, builds the name, and calls the core.
+    private func voiceAssignment(_ a: ChordAssignment) -> (name: String, notes: [Int]) {
+        let rootPC = a.soundingRoot(keyRootPC: self.keyRootPC)
+        let name = Self.pcNames[rootPC] + a.quality.suffix
+        return voiceChord(rootPC: rootPC, t3: a.quality.t3, t5: a.quality.t5, flat7: a.quality.flat7, name: name)
     }
 
     // MARK: - Note pool
@@ -125,6 +158,27 @@ final class StrumPlayer: ObservableObject {
     /// MELODIC slot (replacing the C1's pattern on that paddle), unlike the
     /// drums, which are a separate layer with their own gesture.
     @Published private(set) var armed = false
+    // MARK: - Chord table (build 118)
+
+    /// Armed chord table (nil = degree path, today's behavior).
+    var armedChordTable: ChordTable? = nil
+
+    /// Arm or clear the chord table.
+    /// When armed, learned pad touches fire their assigned chords.
+    /// When nil, the degree path (fret position → scale degree → diatonic triad) fires.
+    func setChordTable(_ t: ChordTable?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.armedChordTable = t
+            self.activeAssignment = nil
+            if let name = t?.name {
+                AppModel.shared.addLog("Chord table armed: \(name)")
+            } else {
+                AppModel.shared.addLog("Chord table cleared")
+            }
+        }
+    }
+
     // MARK: - Paddle one-shot state
 
     /// Press-duration recon (build 94→101): BLEManager still reports
@@ -185,7 +239,10 @@ final class StrumPlayer: ObservableObject {
     /// Guitar's own tempo byte (BLEManager FF01 byte[7]). Build 97: single
     /// strums are hand-timed, so the byte no longer re-renders anything in
     /// the paddle path — kept as a hook for future tempo-aware work.
-    func noteGuitarBpm(_ bpm: Int) { }
+    /// Latest guitar tempo byte (FF01 byte[7]) — the fret-fire tempo fallback
+    /// (build 115): same role it served on the pedal path.
+    private var lastGuitarBpm = 0
+    func noteGuitarBpm(_ bpm: Int) { lastGuitarBpm = bpm }
 
     /// Front-paddle strum (BLEManager byte[5] rise, beat pad not held,
     /// velocity != 0x40). BUILD 101 — MODEL A (Rich 06:55: "I still only
@@ -204,6 +261,18 @@ final class StrumPlayer: ObservableObject {
         DispatchQueue.main.async {
             guard self.armed, !self.isPlaying else { return }
             if LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming { return }
+            self.fireFigure(guitarBpm: guitarBpm, velocity: velocity, source: "paddle")
+        }
+    }
+
+    /// The shared strike core (build 115 — Rich 08:32: "maybe I don't need
+    /// the paddle. Maybe we should start the strum on my finger touches the
+    /// fret"): paddle press and fret touch land here — same render, same
+    /// press-anchored schedule, same self-clock. Callers hold the guards
+    /// (armed / looper / audition). Build 114's drum-grid anchor was reverted
+    /// in 115 (preserved in git ecb8b6b) — the fret hand leads the beat
+    /// naturally, which is the slack the lag needs.
+    private func fireFigure(guitarBpm: Int, velocity: Int, source: String) {
             // Build 107 — self-clocking strum (Rich 8/22 06:47: "could we
             // try it where the strum has their own separate tempo, and then
             // relies on me to strum at the correct time"): after the first
@@ -251,43 +320,14 @@ final class StrumPlayer: ObservableObject {
             self.lastPressAt = now
             self.pressTempoBPM = bpm
             self.updateChordName()
-            guard let buf = self.renderOneShot(bpm: bpm) else { return }
+            guard let buf = self.renderOneShot(bpm: bpm, main: self.currentVoicing()) else { return }
             self.installGraphIfNeeded()
             if !self.engine.isRunning { try? self.engine.start() }
             self.player.stop()
-            // Build 114 — drum-grid anchored down (Rich 07:41 "it's still
-            // slow to respond… maybe we need to outsmart it"; 07:47 "Please
-            // build it", on Bluetooth): when the drums play, the figure is
-            // scheduled at the next 16th of BeatPlayer's grid far enough out
-            // to swallow the whole press→sound latency (app slop + output
-            // latency + margin) — the down lands exactly on the drum grid
-            // however big L is. A soft acknowledgment strum answers the
-            // press instantly on the ack player (the sacrificial beat). No
-            // drums → press-anchored, as before.
-            let lead = 0.030 + AVAudioSession.sharedInstance().outputLatency + 0.020
-            if let target = BeatPlayer.shared.nextGrid16HostTime(leadSeconds: lead) {
-                self.player.scheduleBuffer(buf, at: AVAudioTime(hostTime: target), options: []) { [weak self] in
-                    DispatchQueue.main.async { self?.oneShotActive = false }
-                }
-                self.oneShotTargetHost = target
-                let nowH = mach_absolute_time()
-                let delaySec = target > nowH ? AVAudioTime.seconds(forHostTime: target - nowH) : 0
-                self.oneShotStartedAt = Date().addingTimeInterval(delaySec)
-                if let ack = self.assembleStrum(notes: self.voiceChord().notes, up: false) {
-                    self.ackPlayer.stop()
-                    self.ackPlayer.volume = 0.45
-                    self.ackPlayer.scheduleBuffer(ack, at: nil, options: .interrupts, completionHandler: nil)
-                    self.ackPlayer.play()
-                }
-                AppModel.shared.addLog(String(format: "Paddle strum — %@, down anchored +%dms @ %d BPM", self.chordName, Int(delaySec * 1000), bpm))
-            } else {
-                self.player.scheduleBuffer(buf, at: nil, options: []) { [weak self] in
-                    DispatchQueue.main.async { self?.oneShotActive = false }
-                }
-                self.oneShotTargetHost = nil
-                self.oneShotStartedAt = Date()
-                AppModel.shared.addLog("Paddle strum — \(self.chordName), full figure @ \(bpm) BPM")
+            self.player.scheduleBuffer(buf, at: nil, options: []) { [weak self] in
+                DispatchQueue.main.async { self?.oneShotActive = false }
             }
+            self.oneShotStartedAt = Date()
             // Velocity → loudness (byte[5]: 0x0c soft … 0x40 hard).
             if velocity > 0 {
                 let vel = min(Float(velocity), 64) / 64.0
@@ -299,7 +339,19 @@ final class StrumPlayer: ObservableObject {
             self.oneShotActive = true
             self.oneShotBPM = bpm
             self.soundingDegree = self.degree
-        }
+            self.lastFireAt = Date()
+            AppModel.shared.addLog("Strum — \(self.chordName), full figure @ \(bpm) BPM (\(source))")
+            // Build 120 (diagnostic): how late was this fire? press→fire
+            // (BLE arrival → scheduled on main) + the fixed audio tail the
+            // ear still waits through (ioBuffer + outputLatency). Cleared on
+            // read so fires without a fresh touch never log stale numbers.
+            if let t0 = self.padTouchArrival {
+                self.padTouchArrival = nil
+                let sess = AVAudioSession.sharedInstance()
+                let lag = (Date.timeIntervalSinceReferenceDate - t0) * 1000
+                let tail = (sess.ioBufferDuration + sess.outputLatency) * 1000
+                AppModel.shared.addLog(String(format: "⏱ press→fire %.0fms + audio tail %.0fms ≈ %.0fms to ear (%@)", lag, tail, lag + tail, source))
+            }
     }
 
     /// MUTE-SLIDE choke (build 101 — Rich 06:56: "the mute pad doesn't turn
@@ -312,10 +364,8 @@ final class StrumPlayer: ObservableObject {
             guard self.oneShotActive else { return }
             self.player.volume = 0
             self.player.stop()
-            self.ackPlayer.stop()
             self.oneShotActive = false
             self.oneShotStartedAt = nil
-            self.oneShotTargetHost = nil
             AppModel.shared.addLog("Strum choked (mute slide)")
         }
     }
@@ -326,8 +376,14 @@ final class StrumPlayer: ObservableObject {
     private var oneShotStartedAt: Date?
     private var oneShotBPM = 0
     private var soundingDegree = 1
-    /// Build 114: host time of the anchored down (nil = press-anchored).
-    private var oneShotTargetHost: UInt64?
+    /// Build 115: fret-touch firing state — last raw mask (touch = 0→pos)
+    /// and last fire time (120ms finger-roll settle guard).
+    private var lastFretMask: UInt8 = 0
+    private var lastFireAt: Date?
+    /// Build 120 (diagnostic): wall-clock arrival of the BLE frame that
+    /// triggered the next pad/fret fire. Written on the BLE queue, read and
+    /// cleared on main. Diagnostic only — a stale value costs one bad log line.
+    var padTouchArrival: TimeInterval?
     /// Self-clocking tempo state (build 107): last paddle press + the tempo
     /// his presses have settled on (0 = not yet — seed from resolved tempo).
     private var lastPressAt: Date?
@@ -346,27 +402,15 @@ final class StrumPlayer: ObservableObject {
     /// grid hits in the NEW chord. The figure never restarts; the groove
     /// never breaks. No hits left (ring-only tail) → do nothing: the old
     /// chord rings out naturally, like a real guitar.
-    private func swapOneShotChord(oldDegree: Int) {
+    /// Build 118: generalized to voicing tuples — the degree and table paths
+    /// both produce (name,notes) so transitions work identically.
+    private func swapOneShotChord(oldVoicing: (name: String, notes: [Int]), newVoicing: (name: String, notes: [Int])) {
         guard self.oneShotActive, let started = self.oneShotStartedAt, self.oneShotBPM > 0 else { return }
         let bpm = self.oneShotBPM
-        // Build 114: the anchored figure hasn't started sounding yet — a
-        // fret move during the wait re-renders the WHOLE figure in the new
-        // chord and keeps the grid slot (no goodbye: nothing has sounded).
-        if let startHost = self.oneShotTargetHost, startHost > mach_absolute_time() {
-            guard let rebuf = self.renderOneShot(bpm: bpm, fromPos16: 0, mainDegree: self.degree) else { return }
-            self.player.stop()
-            self.player.scheduleBuffer(rebuf, at: AVAudioTime(hostTime: startHost), options: []) { [weak self] in
-                DispatchQueue.main.async { self?.oneShotActive = false }
-            }
-            self.player.play()
-            self.soundingDegree = self.degree
-            AppModel.shared.addLog("Figure re-voiced before the anchored down — \(self.chordName)")
-            return
-        }
         let sixteenthSec = 60.0 / Double(bpm) / 4.0
         let pos16 = Date().timeIntervalSince(started) / sixteenthSec
         guard pos16 < Double(self.activeStepsPerBar) else { return } // ring-only tail
-        guard let buf = self.renderOneShot(bpm: bpm, fromPos16: pos16, goodbyeDegree: oldDegree, mainDegree: self.degree) else { return }
+        guard let buf = self.renderOneShot(bpm: bpm, fromPos16: pos16, goodbye: oldVoicing, main: newVoicing) else { return }
         self.installGraphIfNeeded()
         if !self.engine.isRunning { try? self.engine.start() }
         self.player.stop()
@@ -375,8 +419,7 @@ final class StrumPlayer: ObservableObject {
         }
         self.player.play()
         self.oneShotActive = true
-        self.soundingDegree = self.degree
-        AppModel.shared.addLog("Figure transition — goodbye pos \(oldDegree), now \(self.chordName)")
+        AppModel.shared.addLog("Figure transition — goodbye \(oldVoicing.name), now \(newVoicing.name)")
     }
 
     /// Live tempo follow (Rich 18:55): a landed tempo retempos a playing
@@ -485,18 +528,119 @@ final class StrumPlayer: ObservableObject {
     /// Fret-position feed (BLEManager FF01 byte[4]). Position N = degree N;
     /// 0 = nothing pressed (hold the current chord). A new degree while
     /// playing swaps the chord at the next bar line.
+    /// Pad-learn handler (build 116): called from BLEManager on the MAIN queue
+    /// with the packed pad signature and the learned note PC. The handler
+    /// writes into a ChordTable cell; returns true if the learn was accepted.
+    var padLearnHandler: ((UInt32, UInt8) -> Bool)?
+    /// Tracks the current pad mask so we only fire on the press edge (0→non-zero).
+    private var lastPadMask: UInt32 = 0
+
+    /// Handle a 14-byte FF01 frame carrying a fret-fired pad press. Called
+    /// on the main queue by BLEManager; only fires on the press edge
+    /// (lastPadMask was 0, new mask != 0). Extracts the pad signature
+    /// (bytes 2,3,4,13) and the note PC (byte 12) and dispatches it to the
+    /// pad-learn handler if one is armed.
+    func notePadFrame(_ bytes: [UInt8]) {
+        guard bytes.count == 14 else { return }
+        let mask = (UInt32(bytes[2]) << 16) | (UInt32(bytes[3]) << 8) | UInt32(bytes[4])
+        let wasIdle = (lastPadMask == 0)
+        lastPadMask = mask
+        guard mask != 0, wasIdle else { return } // press edge only
+        let sig = ChordAssignment.signature(b2: bytes[2], b3: bytes[3], b4: bytes[4], b13: bytes[13])
+        // Build 118: save the signature for the suppression path in noteFretMask.
+        lastPadSig = sig
+        DispatchQueue.main.async {
+            // Build 118: if not learning and a chord table is armed, fire it.
+            if self.padLearnHandler == nil, let table = self.armedChordTable {
+                for cell in table.cells {
+                    if cell?.signature == sig {
+                        let assign = cell!
+                        // Audition guard: the chord-table editor owns the layer.
+                        guard !self.auditioning else { return }
+                        let voicing = self.voiceAssignment(assign)
+                        let oldV = self.currentVoicing()
+                        self.activeAssignment = assign
+                        self.updateChordName()
+                        if !self.isPlaying, self.armed,
+                           !(LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming) {
+                            // Touch-fire — degree-path semantics: a press IS
+                            // the strike; a re-press within 120ms is a
+                            // finger-roll settle (re-voice, don't re-fire).
+                            if let last = self.lastFireAt, Date().timeIntervalSince(last) < 0.12, self.oneShotActive {
+                                self.swapOneShotChord(oldVoicing: oldV, newVoicing: voicing)
+                            } else {
+                                self.fireFigure(guitarBpm: self.lastGuitarBpm, velocity: 0, source: "pad")
+                            }
+                            AppModel.shared.addLog("Strum chord → \(voicing.name) (pad)")
+                        } else if self.isPlaying {
+                            // Playing: the next bar renders the new chord.
+                            self.swapChordIfPlaying()
+                            AppModel.shared.addLog("Strum chord → \(voicing.name) (pad)")
+                        }
+                        return
+                    }
+                }
+                // No match in the table — fall through to learn dispatch below.
+            }
+            _ = self.padLearnHandler?(sig, bytes[12])
+        }
+    }
+
+    /// Build 118: last pad signature seen on the press edge — used to
+    /// suppress double-firing when the chord-table path already owns
+    /// that pad (notePadFrame runs before noteFretMask in BLEManager).
+    private var lastPadSig: UInt32 = 0
+
     func noteFretMask(_ mask: UInt8) {
-        guard mask != 0 else { return }
+        let prev = self.lastFretMask
+        self.lastFretMask = mask
+        guard mask != 0 else { return } // lift — the figure rings on
         let deg = mask.trailingZeroBitCount  // pos1=0x02→1 … pos7=0x80→7
-        guard (1...7).contains(deg), deg != degree else { return }
+        guard (1...7).contains(deg) else { return }
+        let isTouch = (prev == 0)
         DispatchQueue.main.async {
             guard !self.auditioning else { return } // the editor owns the chord while auditioning
-            let wasSounding = self.soundingDegree
+
+            // Build 118: suppress if the armed table already owns this pad.
+            // notePadFrame ran first on this frame and fired the table path;
+            // we must not double-fire from the degree path.
+            if let table = self.armedChordTable, self.lastPadSig != 0 {
+                for cell in table.cells {
+                    if cell?.signature == self.lastPadSig { return }
+                }
+            }
+
+            // Build 115 — fret-touch firing (Rich 08:32: "maybe I don't need
+            // the paddle. Maybe we should start the strum on my finger
+            // touches the fret"): a 0→position touch IS the strike — the
+            // left hand leads the beat naturally, which is exactly the slack
+            // the press→sound lag needs. Same-position re-touch = the bar-ly
+            // re-strum. Position→position moves keep the 105/106 transition.
+            // A second touch within 120ms is a finger-roll settle: re-voice,
+            // don't re-fire.
+            if isTouch, self.armed, !self.isPlaying,
+               !(LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming) {
+                if let last = self.lastFireAt, Date().timeIntervalSince(last) < 0.12, self.oneShotActive {
+                    let oldV = self.currentVoicing()
+                    self.degree = deg
+                    self.activeAssignment = nil
+                    self.updateChordName()
+                    self.swapOneShotChord(oldVoicing: oldV, newVoicing: self.currentVoicing())
+                    return
+                }
+                self.degree = deg
+                self.activeAssignment = nil
+                self.fireFigure(guitarBpm: self.lastGuitarBpm, velocity: 0, source: "fret")
+                return
+            }
+            guard deg != self.degree else { return }
+            let oldV = self.currentVoicing()
             self.degree = deg
+            self.activeAssignment = nil
             self.updateChordName()
             AppModel.shared.addLog("Strum chord → \(self.chordName) (pos \(deg))")
             self.swapChordIfPlaying()
-            self.swapOneShotChord(oldDegree: wasSounding)
+            if self.oneShotActive { self.swapOneShotChord(oldVoicing: oldV, newVoicing: self.currentVoicing()) }
         }
     }
 
@@ -697,7 +841,9 @@ final class StrumPlayer: ObservableObject {
     /// delay"), while EVERY remaining grid hit sounds `mainDegree`. A slot
     /// within 0.15 16ths of the move is swallowed by the goodbye (no
     /// two-chords-at-once mud).
-    private func renderOneShot(bpm: Int, fromPos16: Double = 0, goodbyeDegree: Int? = nil, mainDegree: Int? = nil) -> AVAudioPCMBuffer? {
+    /// Build 118: generalized to voicing tuples — the degree and table paths
+    /// both produce (name,notes) so transitions work identically.
+    private func renderOneShot(bpm: Int, fromPos16: Double = 0, goodbye: (name: String, notes: [Int])? = nil, main: (name: String, notes: [Int])? = nil) -> AVAudioPCMBuffer? {
         guard let format = AVAudioFormat(standardFormatWithSampleRate: Self.sr, channels: 1) else { return nil }
         let sixteenthFrames = Int((60.0 / Double(bpm) / 4.0) * Self.sr)
         let span16 = Double(activeStepsPerBar) - max(0, min(fromPos16, Double(activeStepsPerBar)))
@@ -708,29 +854,37 @@ final class StrumPlayer: ObservableObject {
         buffer.frameLength = AVAudioFrameCount(totalFrames)
         let out = data[0]
         memset(out, 0, totalFrames * MemoryLayout<Float>.size)
-        let mainDeg = mainDegree ?? self.degree
+        // Determine the new voicing: explicit > current degree path
+        let newV: (name: String, notes: [Int])
+        let hasTwo: Bool
+        if let m = main {
+            newV = m
+            hasTwo = (goodbye != nil)
+        } else {
+            newV = voiceChord()
+            hasTwo = (goodbye != nil && goodbye!.name != newV.name)
+        }
         // Grid hits after the move (a slot ~ON the move is swallowed by the
         // goodbye) + the instant goodbye upstroke at the move moment.
-        let swallow: Double = (goodbyeDegree != nil && goodbyeDegree != mainDeg) ? 0.15 : -0.001
+        let swallow: Double = hasTwo ? 0.15 : -0.001
         let hits = selectHits(sixteenthFrames: sixteenthFrames).filter { $0.pos16 >= fromPos16 + swallow }
         guard !hits.isEmpty else { return nil }
-        var work: [(hit: RenderHit, deg: Int)] = hits.map { ($0, mainDeg) }
-        if let gd = goodbyeDegree, gd != mainDeg {
-            work.insert((RenderHit(pos16: fromPos16, gain: 0.95, up: true), gd), at: 0)
+        var work: [(hit: RenderHit, notes: [Int])] = hits.map { ($0, newV.notes) }
+        if let gv = goodbye, hasTwo {
+            work.insert((RenderHit(pos16: fromPos16, gain: 0.95, up: true), gv.notes), at: 0)
         }
-        // Assemble takes per chord (one or two degrees).
-        var takes: [Int: (down: AVAudioPCMBuffer, up: AVAudioPCMBuffer)] = [:]
-        for deg in Set(work.map { $0.deg }) {
-            let chord = voiceChord(degree: deg)
-            if let d = assembleStrum(notes: chord.notes, up: false),
-               let u = assembleStrum(notes: chord.notes, up: true) {
-                takes[deg] = (d, u)
+        // Assemble takes per voicing (one or two chords).
+        var takes: [[Int]: (down: AVAudioPCMBuffer, up: AVAudioPCMBuffer)] = [:]
+        for notes in Set(work.map { $0.notes }) {
+            if let d = assembleStrum(notes: notes, up: false),
+               let u = assembleStrum(notes: notes, up: true) {
+                takes[notes] = (d, u)
             }
         }
         guard !takes.isEmpty else { return nil }
-        for (i, hitDeg) in work.enumerated() {
-            let (hit, deg) = hitDeg
-            guard let pair = takes[deg] else { continue }
+        for (i, hitNote) in work.enumerated() {
+            let (hit, notes) = hitNote
+            guard let pair = takes[notes] else { continue }
             let take = hit.up ? pair.up : pair.down
             guard let td = take.floatChannelData else { continue }
             let src = td[0]
@@ -826,6 +980,7 @@ final class StrumPlayer: ObservableObject {
         if auditioning {
             degree = (auditionIV && auditionBarCount % 2 == 1) ? 4 : 1
             auditionBarCount += 1
+            activeAssignment = nil
         }
         let sixteenthFrames = Int((60.0 / Double(bpm) / 4.0) * Self.sr)
         let barFrames = sixteenthFrames * activeStepsPerBar
@@ -851,7 +1006,7 @@ final class StrumPlayer: ObservableObject {
         tailHistory = kept
 
         // 2) This bar's strums: one fresh down-assembly and one up-assembly.
-        let chord = voiceChord()
+        let chord = currentVoicing()
         guard let downTake = assembleStrum(notes: chord.notes, up: false),
               let upTake = assembleStrum(notes: chord.notes, up: true),
               let dd = downTake.floatChannelData, let ud = upTake.floatChannelData else { return nil }
@@ -883,15 +1038,13 @@ final class StrumPlayer: ObservableObject {
     // MARK: - Internals
 
     private func updateChordName() {
-        chordName = voiceChord().name
+        chordName = currentVoicing().name
     }
 
     private func stopInternal() {
         player.stop()
-        ackPlayer.stop()
         isPlaying = false
         oneShotActive = false
-        oneShotTargetHost = nil
         currentBPM = 0
         barsQueuedAhead = 0
         tailHistory = []
@@ -901,13 +1054,11 @@ final class StrumPlayer: ObservableObject {
     private func installGraphIfNeeded() {
         guard !graphInstalled else { return }
         engine.attach(player)
-        engine.attach(ackPlayer)
         guard let format = AVAudioFormat(standardFormatWithSampleRate: Self.sr, channels: 1) else {
             AppModel.shared.addLog("Strum: could not create audio format")
             return
         }
         engine.connect(player, to: engine.mainMixerNode, format: format)
-        engine.connect(ackPlayer, to: engine.mainMixerNode, format: format)
         engine.prepare()
         graphInstalled = true
     }

@@ -67,6 +67,8 @@ final class VoiceCommandManager: ObservableObject {
     @Published var strumInRecipe = false
     /// Attached Guitar-Beats strum (build 90) — nil = no named strum.
     @Published var customStrumName: String? = nil
+    /// Chord table name (build 118).
+    @Published var chordTableName: String? = nil
     /// Picker binding: "none" or "custom:<name>" (mirrors beatStyleSelection).
     var strumBeatSelection: String {
         get { customStrumName.map { "custom:\($0)" } ?? "none" }
@@ -1152,7 +1154,8 @@ final class VoiceCommandManager: ObservableObject {
             beatPattern: (beatInRecipe && customBeatName == nil) ? BeatPlayer.shared.currentPattern.rawValue : nil,
             customBeatName: beatInRecipe ? customBeatName : nil,
             strumEnabled: strumInRecipe,
-            customStrumName: customStrumName
+            customStrumName: customStrumName,
+            chordTableName: chordTableName
         )
         let number = PresetStore.shared.add(preset)
         statusLine = "Saved \"\(preset.name)\" as song #\(number) — in OnSong: Ch 16 · PC \(number)."
@@ -1178,6 +1181,7 @@ final class VoiceCommandManager: ObservableObject {
         }
         strumInRecipe = preset.strumEnabled
         customStrumName = preset.customStrumName
+        chordTableName = preset.chordTableName
         candidate = nil
         statusLine = "Editing \"\(preset.name)\" — make changes, then save with the same name."
     }
@@ -1198,6 +1202,7 @@ final class VoiceCommandManager: ObservableObject {
         }
         strumInRecipe = preset.strumEnabled
         customStrumName = preset.customStrumName
+        chordTableName = preset.chordTableName
         candidate = nil
         PresetStore.shared.apply(preset)
         statusLine = "Loaded \"\(preset.name)\" — sending to the C1."

@@ -50,6 +50,10 @@ struct ContentView: View {
             syncView
                 .tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
                 .tag(7)
+
+            chordsView
+                .tabItem { Label("Chords", systemImage: "square.grid.3x3") }
+                .tag(9)
         }
         .navigationTitle(ble.isConnected ? "C1: Connected" : "C1: Disconnected")
         .navigationBarTitleDisplayMode(.inline)
@@ -103,6 +107,11 @@ struct ContentView: View {
     // MARK: - Sync (OnSong song backup/restore)
     private var syncView: some View {
         SyncView()
+    }
+
+    // MARK: - Chord Tables editor
+    private var chordsView: some View {
+        ChordTablesView()
     }
 
     // MARK: - Activity Log

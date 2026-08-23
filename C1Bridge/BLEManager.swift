@@ -318,6 +318,12 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         // suspected beat-state/gesture byte we're hunting.
         if characteristic.uuid.uuidString == "FF01", data.count == 14 {
             let bytes = [UInt8](data)
+            // Build 120 (diagnostic): stamp BLE arrival of any NEW touch
+            // (mask 0→pos or pos→pos) so StrumPlayer can log press→fire lag.
+            if bytes[4] != 0, bytes[4] != fretMask {
+                StrumPlayer.shared.padTouchArrival = Date.timeIntervalSinceReferenceDate
+            }
+            StrumPlayer.shared.notePadFrame(bytes)
             // Publish fretboard telemetry on EVERY FF01 frame (guarded assigns
             // make no-change frames free) so the Beat tab never misses state —
             // including the baseline frame that returns early below.
@@ -505,7 +511,11 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
                     // pulse isn't a mute-pad 0x40 → play ONE strum cycle in
                     // the current chord. Only when a strum recipe armed it.
                     if StrumPlayer.shared.armed { strumPaddleRiseAt = now; strumPaddleRiseValue = v }
-                    StrumPlayer.shared.paddleStrum(guitarBpm: Int(bytes[7]), velocity: Int(v))
+                    // Build 115 — the pedal no longer fires the strum (Rich
+                    // 08:50: "engages when I press the fret and NOT when I
+                    // press the pedal"). The fret touch is the strike
+                    // (StrumPlayer.noteFretMask); paddle rise keeps feeding
+                    // press-duration recon only.
                 }
                 lastByte5RiseAt = now
             }

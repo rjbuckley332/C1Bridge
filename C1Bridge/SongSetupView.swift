@@ -14,8 +14,10 @@ struct SongSetupView: View {
     @ObservedObject private var looper = LooperEngine.shared
     @ObservedObject private var strum = StrumPlayer.shared
     @ObservedObject private var strumLibrary = StrumBeatLibrary.shared
+    @ObservedObject private var chordLib = ChordTableLibrary.shared
     @State private var searchText = ""
     @State private var presetName = ""
+
     @FocusState private var nameFieldFocused: Bool
 
     private static let keyNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -266,6 +268,19 @@ struct SongSetupView: View {
             .font(.subheadline)
             .onChange(of: voice.strumBeatSelection) { _ in voice.noteStrumBeatSelectionChanged() }
 
+            // Build 118: Chord table picker
+            Picker("Chords", selection: $voice.chordTableName) {
+                Text("Follow key (degrees)").tag(nil as String?)
+                if !chordLib.tables.isEmpty {
+                    Section {
+                        ForEach(chordLib.tables) { t in
+                            Text(t.name).tag(t.name as String?)
+                        }
+                    }
+                }
+            }
+            .font(.subheadline)
+
             HStack {
                 Text("Drums Vol")
                 Spacer()
@@ -369,6 +384,10 @@ struct SongSetupView: View {
         }
         if let cs = voice.customStrumName {
             lines.append("Strum beat \"\(cs)\" (my strum) — paddle plays it per hit")
+        }
+        // Build 118: chord table
+        if let ct = voice.chordTableName {
+            lines.append("Chords: \(ct)")
         }
         return lines.isEmpty ? "Nothing yet." : lines.joined(separator: "\n")
     }
@@ -628,6 +647,7 @@ struct SongSetupView: View {
         if p.beatEnabled { bits.append(p.customBeatName.map { "Beat ♪\($0)" } ?? (p.beatPattern.map { "Beat \($0)" } ?? "Beat")) }
         if p.strumEnabled { bits.append("Strum 🎸") }
         if let cs = p.customStrumName { bits.append("Strum ♪\(cs)") }
+        if let ct = p.chordTableName { bits.append("Chords \(ct)") }
         return bits.isEmpty ? "(empty)" : bits.joined(separator: " · ")
     }
 }
