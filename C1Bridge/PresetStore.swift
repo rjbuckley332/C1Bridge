@@ -164,7 +164,16 @@ final class PresetStore: ObservableObject {
     func apply(_ preset: SongPreset) {
         AppModel.shared.addLog("Applying preset \"\(preset.name)\"")
         if let bpm = preset.tempoBPM { VoiceCommandManager.shared.notePresetTempo(bpm) }
+        // Build 122 — MIDI first, strum last (Rich 05:09): while a recipe is on
+        // the wire the strum layer ignores tempo traffic. Every mid-recipe tempo
+        // otherwise restarts a PLAYING strum on the main thread (build 121
+        // measured renders at ~180ms in Debug), stalling the queue OnSong's
+        // events arrive on. The strum is armed in PHASE 3 with the final tempo.
+        MIDIHandler.recipeInFlight = true
         Task { @MainActor in
+            defer { MIDIHandler.recipeInFlight = false }
+            // PHASE 1 — CONTEXT: pattern selects (each answered with the
+            // preset's tempo), then key, then volumes.
             for p in preset.patterns {
                 MIDIHandler.trigger(channel: p.channel, program: p.program)
                 if let bpm = preset.tempoBPM {
@@ -185,10 +194,10 @@ final class PresetStore: ObservableObject {
                 MIDIHandler.trigger(channel: 9, program: bv + 1)
                 try? await Task.sleep(nanoseconds: 120_000_000)
             }
-            // Tempo is the LAST thing sent to the C1. The key commit gets the
-            // same 250ms settle window a pattern select does, then the tempo
-            // lands and nothing after it can wipe it. Covers the no-patterns
-            // case too (the old standalone tempo send folded into this one).
+            // PHASE 2 — TEMPO/BEAT: tempo is the LAST thing sent to the C1
+            // (build 75 rule). The key commit gets the same 250ms settle window
+            // a pattern select does, then the tempo lands and nothing after it
+            // can wipe it. Covers the no-patterns case too.
             if let bpm = preset.tempoBPM {
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 MIDIHandler.triggerTempo(bpm: bpm)
@@ -215,15 +224,11 @@ final class PresetStore: ObservableObject {
                     BeatPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
                 }
             }
-            // Strum layer rides the recipe (build 83 semantics): a strum
-            // recipe ARMS the front-paddle toggle — no auto-start ("plays
-            // only when I toggle"); any other recipe disarms it (and a
-            // playing layer stops with the song change).
-            // Strum layer rides the recipe (build 83 semantics): a strum
-            // recipe ARMS the front-paddle toggle — no auto-start ("plays
-            // only when I toggle"); any other recipe disarms it (and a
-            // playing layer stops with the song change). A named Guitar-Beats
-            // strum (build 90) supersedes the baked 332 toggle.
+            // PHASE 3 — STRUM LAST (build 122): arms only after every wire send
+            // has landed. Build 83 semantics: a strum recipe ARMS the
+            // front-paddle toggle — no auto-start; any other recipe disarms it
+            // (a playing layer stops with the song change). A named
+            // Guitar-Beats strum (build 90) supersedes the baked 332 toggle.
             if let csName = preset.customStrumName {
                 if let sp = StrumBeatLibrary.shared.pattern(named: csName) {
                     StrumPlayer.shared.setArmed(true, bpm: preset.tempoBPM, pattern: sp)

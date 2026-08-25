@@ -24,6 +24,11 @@ class MIDIHandler {
         lastTempoBPM = bpm
     }
     private static var isAdvertising = false
+    /// True while a preset recipe is being sent (PresetStore.apply). Mutes the
+    /// strum layer's tempo-follow so mid-recipe tempo sends can't restart a
+    /// playing strum on the main thread while time-critical MIDI is flowing
+    /// (build 122). The recipe arms the strum LAST with the final tempo.
+    static var recipeInFlight = false
 
     // MARK: - KEY TABLE
     private static let keyTable: [Int: (name: String, payloadHex: String)] = [
@@ -222,7 +227,7 @@ class MIDIHandler {
         // The strum layer rides every landed tempo too: a playing loop
         // retempos in place; an armed layer re-renders its pending one-shot
         // (build 86 — the strum's cycle must match the live tempo, Rich 18:55).
-        if channel == 5 || channel == 6, let t = lastTempoBPM {
+        if channel == 5 || channel == 6, let t = lastTempoBPM, !recipeInFlight {
             StrumPlayer.shared.noteTempoLanded(t)
         }
         
