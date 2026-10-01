@@ -59,6 +59,16 @@ final class LooperEngine: ObservableObject {
     /// by a preset. No count-in, no click, recording disarmed, fret input
     /// ignored — in performance the frets are chord shapes, not drum pads.
     @Published private(set) var isPerforming = false
+    /// Build 123 (Rich 14:52): drums/strums NEVER auto-start — a MIDI command
+    /// starts them. Preset fire ARMS the custom loop here (was: perform);
+    /// Ch10 PC2 performs the armed beat at the live tempo.
+    @Published private(set) var armedPerformBeat: SavedBeat? = nil
+    func armPerform(_ beat: SavedBeat?) {
+        DispatchQueue.main.async {
+            self.armedPerformBeat = beat
+            if let beat { AppModel.shared.addLog("Loop armed: \"\(beat.name)\" — starts on Ch10 PC2") }
+        }
+    }
     @Published private(set) var performingName: String? = nil
     /// Hard builder ON/OFF (Rich 2026-08-18: "we need a hard on off button").
     /// OFF = fret presses and on-screen pads are completely inert — no sound,

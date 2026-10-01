@@ -172,8 +172,20 @@ final class PresetStore: ObservableObject {
         MIDIHandler.recipeInFlight = true
         Task { @MainActor in
             defer { MIDIHandler.recipeInFlight = false }
+            // Build 128 (Rich 10/01): mute FIRST, before any pattern/tempo
+            // traffic. The C1 remembers the last Ch4 drum pattern, and recipe
+            // traffic (pattern select / closing tempo) AUTO-STARTS it on
+            // drum-less songs — the dead-last build-125 mute landed ~1.1–1.4s
+            // too late, so every drum-less song change got an unprompted drum
+            // blurb. Muting up front means the auto-start plays into a dead
+            // channel. Idempotent; the dead-last mute below still catches the
+            // key commit's async reload.
+            MIDIHandler.trigger(channel: 8, program: 1)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            MIDIHandler.trigger(channel: 9, program: 1)
+            try? await Task.sleep(nanoseconds: 120_000_000)
             // PHASE 1 — CONTEXT: pattern selects (each answered with the
-            // preset's tempo), then key, then volumes.
+            // preset's tempo), then key, then the drum/bass mute (build 124).
             for p in preset.patterns {
                 MIDIHandler.trigger(channel: p.channel, program: p.program)
                 if let bpm = preset.tempoBPM {
@@ -186,14 +198,13 @@ final class PresetStore: ObservableObject {
                 MIDIHandler.trigger(channel: 7, program: key)
                 try? await Task.sleep(nanoseconds: 120_000_000)
             }
-            if let dv = preset.drumVol {
-                MIDIHandler.trigger(channel: 8, program: dv + 1)
-                try? await Task.sleep(nanoseconds: 120_000_000)
-            }
-            if let bv = preset.bassVol {
-                MIDIHandler.trigger(channel: 9, program: bv + 1)
-                try? await Task.sleep(nanoseconds: 120_000_000)
-            }
+            // Build 124+125 (Rich 08:18/08:38): the C1's drum+bass get MUTED
+            // on every song select — the saved levels stash here, but the mute
+            // itself goes out DEAD LAST (end of apply): the key commit's state
+            // reload is ASYNC (build 81) and was finishing AFTER the build-124
+            // mid-sequence mute, restoring the loud volumes.
+            MIDIHandler.armedDrumVol = preset.drumVol
+            MIDIHandler.armedBassVol = preset.bassVol
             // PHASE 2 — TEMPO/BEAT: tempo is the LAST thing sent to the C1
             // (build 75 rule). The key commit gets the same 250ms settle window
             // a pattern select does, then the tempo lands and nothing after it
@@ -209,20 +220,24 @@ final class PresetStore: ObservableObject {
                 try? await Task.sleep(nanoseconds: 800_000_000)
                 MIDIHandler.triggerTempo(bpm: bpm)
             }
-            // Beat rides the recipe: starts after every send so the preset's
-            // tempo is already banked; a playing beat was already retempo'd by
-            // the live-follow hook, and start() no-ops if the tempo matches.
-            // beatEnabled == false leaves the beat untouched (no surprise stop).
+            // Build 123 (Rich 14:52): drums NEVER auto-start on preset fire —
+            // the recipe ARMS the loop/beat and Ch10 PC2 starts it at the live
+            // tempo. A no-beat recipe disarms (PC2 can't fire a stale song's
+            // beat); a PLAYING beat is still never surprise-stopped.
             if preset.beatEnabled {
                 if let cbName = preset.customBeatName, let savedBeat = BeatLibrary.shared.beat(named: cbName) {
-                    // Custom loop performs at the SONG's tempo (universal tempo rule).
-                    LooperEngine.shared.perform(savedBeat, bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
+                    LooperEngine.shared.armPerform(savedBeat)
+                    BeatPlayer.shared.disarm()
                 } else {
                     if let raw = preset.beatPattern, let p = BeatPattern(rawValue: raw) {
                         BeatPlayer.shared.currentPattern = p
                     }
-                    BeatPlayer.shared.start(bpm: preset.tempoBPM ?? MIDIHandler.lastSentTempoBPM)
+                    BeatPlayer.shared.arm(bpm: preset.tempoBPM)
+                    LooperEngine.shared.armPerform(nil)
                 }
+            } else {
+                LooperEngine.shared.armPerform(nil)
+                BeatPlayer.shared.disarm()
             }
             // PHASE 3 — STRUM LAST (build 122): arms only after every wire send
             // has landed. Build 83 semantics: a strum recipe ARMS the
@@ -246,6 +261,20 @@ final class PresetStore: ObservableObject {
             } else {
                 StrumPlayer.shared.setChordTable(nil)
             }
+            // Build 125 (Rich 08:38): the MUTE is the last thing on the wire —
+            // after every song command AND the key commit's async reload
+            // window (the closing tempo's 800ms echo covers it when a tempo
+            // exists; without one, wait the window here). The C1 then stays
+            // silent until Rich's tempo-pad tap (BLEManager restores the armed
+            // vols) or Ch10 PC2.
+            if preset.tempoBPM == nil, preset.keyProgram != nil {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            } else {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            MIDIHandler.trigger(channel: 8, program: 1)
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            MIDIHandler.trigger(channel: 9, program: 1)
         }
     }
 

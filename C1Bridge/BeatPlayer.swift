@@ -54,6 +54,15 @@ final class BeatPlayer: ObservableObject {
 
     @Published private(set) var isPlaying = false
     @Published private(set) var currentBPM = 0
+    /// Build 123 (Rich 14:52): no auto-start. Preset fire arms the built-in
+    /// beat here (pattern set by the recipe); Ch10 PC2 starts it live.
+    @Published private(set) var armedBPM: Int? = nil
+    func arm(bpm: Int?) {
+        DispatchQueue.main.async { self.armedBPM = bpm }
+    }
+    func disarm() {
+        DispatchQueue.main.async { self.armedBPM = nil }
+    }
     /// The pattern every start() renders. Persisted; presets snapshot/restore it.
     @Published var currentPattern: BeatPattern {
         didSet {

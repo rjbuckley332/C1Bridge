@@ -15,6 +15,12 @@ class MIDIHandler {
     private static var lastTempoBPM: Int? = nil
     /// Read-only view of the last tempo sent — UI fallback when the tempo field is empty.
     static var lastSentTempoBPM: Int { lastTempoBPM ?? 120 }
+    /// Build 124 (Rich 08:18): preset fire MUTES the C1's drum+bass (Ch8/Ch9
+    /// PC1 = vol 0) instead of applying the saved levels — a song no longer
+    /// starts playing on select. The saved vols arm here; Ch10 PC2 applies
+    /// them when the song's sound starts.
+    static var armedDrumVol: Int? = nil
+    static var armedBassVol: Int? = nil
     /// True once WE have sent a tempo this session (preset/voice/stepper) —
     /// i.e. there IS a song tempo to defend against tap-tempo contamination.
     static var hasSongTempo: Bool { lastTempoBPM != nil }
@@ -143,6 +149,11 @@ class MIDIHandler {
         let program = Int(packet[1]) + 1 // Converts MIDI 0-127 to 1-128
 
         guard (status & 0xF0) == 0xC0 else { return }
+        // Build 127 (Rich 05:37): wire-truth logging — every inbound program
+        // change is logged BEFORE dispatch, so the Activity view can tell
+        // "OnSong sent it" (this line) from "the app generated it" (voice /
+        // preset / UI fires produce action lines but no MIDI RX line).
+        AppModel.shared.addLog("MIDI RX: Ch\(channel) P\(program)")
         trigger(channel: channel, program: program)
     }
 
@@ -244,10 +255,32 @@ class MIDIHandler {
             LooperEngine.shared.stop()
             StrumPlayer.shared.stop()
         }
-        // 4b. BEAT: Ch10 PC2 = DUUDU on (at last tempo sent), PC3 = off
+        // 4b. START (build 123, Rich 14:52): Ch10 PC2 starts whatever the fired
+        // preset ARMED — custom loop / built-in beat / strum layer — at the live
+        // tempo. Nothing armed → legacy DUUDU. PC3 = stop (unchanged).
         else if channel == 10 && program == 2 {
-            AppModel.shared.addLog("Trigger: Ch10 PC2 - Beat ON @ \(lastTempoBPM ?? 120) BPM")
-            BeatPlayer.shared.start(bpm: lastTempoBPM ?? 120)
+            // Build 124: bring the song's saved drum/bass levels up WITH the
+            // start (they were muted on fire) — sent first so the C1 un-mutes
+            // before the armed layers land.
+            if let dv = armedDrumVol { trigger(channel: 8, program: dv + 1) }
+            if let bv = armedBassVol { trigger(channel: 9, program: bv + 1) }
+            var started: [String] = []
+            if let sb = LooperEngine.shared.armedPerformBeat {
+                LooperEngine.shared.perform(sb, bpm: lastTempoBPM)
+                started.append("loop \"\(sb.name)\"")
+            } else if BeatPlayer.shared.armedBPM != nil {
+                BeatPlayer.shared.start(bpm: lastTempoBPM ?? BeatPlayer.shared.armedBPM ?? 120)
+                started.append("beat")
+            }
+            if StrumPlayer.shared.armed {
+                StrumPlayer.shared.start(bpm: lastTempoBPM ?? 120)
+                started.append("strum")
+            }
+            if started.isEmpty {
+                BeatPlayer.shared.start(bpm: lastTempoBPM ?? 120)
+                started.append("beat")
+            }
+            AppModel.shared.addLog("Trigger: Ch10 PC2 — START \(started.joined(separator: " + ")) @ \(lastTempoBPM ?? 120) BPM")
         }
         else if channel == 10 && program == 3 {
             BeatPlayer.shared.stop()

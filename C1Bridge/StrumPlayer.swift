@@ -240,7 +240,7 @@ final class StrumPlayer: ObservableObject {
                 self.keyRootPC = MIDIHandler.currentKeyRootPC
                 self.updateChordName()
             }
-            AppModel.shared.addLog(on ? "Strum armed — each paddle press plays the next strum" : "Strum disarmed")
+            AppModel.shared.addLog(on ? "Strum armed — starts on Ch10 PC2" : "Strum disarmed")
         }
     }
 
@@ -266,11 +266,11 @@ final class StrumPlayer: ObservableObject {
     /// he'd only played one press per bar then; free playing exposed it.)
     /// No-op unless armed; the looper owns the paddle in test/record mode.
     func paddleStrum(guitarBpm: Int, velocity: Int = 0) {
-        DispatchQueue.main.async {
-            guard self.armed, !self.isPlaying else { return }
-            if LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming { return }
-            self.fireFigure(guitarBpm: guitarBpm, velocity: velocity, source: "paddle")
-        }
+        // Build 123 (Rich 14:52): strums NEVER auto-start. A paddle press is
+        // how Rich strums the C1's own patterns — the armed figure firing on
+        // every press WAS the auto-start. The figure now starts ONLY on the
+        // MIDI command (Ch10 PC2 → start(bpm:)); the paddle belongs to the C1.
+        _ = guitarBpm; _ = velocity
     }
 
     /// The shared strike core (build 115 — Rich 08:32: "maybe I don't need
@@ -562,33 +562,22 @@ final class StrumPlayer: ObservableObject {
         // Build 118: save the signature for the suppression path in noteFretMask.
         lastPadSig = sig
         DispatchQueue.main.async {
-            // Build 118: if not learning and a chord table is armed, fire it.
+            // Build 118: if not learning and a chord table is armed, track it.
             if self.padLearnHandler == nil, let table = self.armedChordTable {
                 for cell in table.cells {
                     if cell?.signature == sig {
                         let assign = cell!
                         // Audition guard: the chord-table editor owns the layer.
                         guard !self.auditioning else { return }
-                        let voicing = self.voiceAssignment(assign)
-                        let oldV = self.currentVoicing()
                         self.activeAssignment = assign
                         self.updateChordName()
-                        if !self.isPlaying, self.armed,
-                           !(LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming) {
-                            // Touch-fire — degree-path semantics: a press IS
-                            // the strike; a re-press within 120ms is a
-                            // finger-roll settle (re-voice, don't re-fire).
-                            if let last = self.lastFireAt, Date().timeIntervalSince(last) < 0.12, self.oneShotActive {
-                                self.swapOneShotChord(oldVoicing: oldV, newVoicing: voicing)
-                            } else {
-                                self.fireFigure(guitarBpm: self.lastGuitarBpm, velocity: 0, source: "pad")
-                            }
-                            AppModel.shared.addLog("Strum chord → \(voicing.name) (pad)")
-                        } else if self.isPlaying {
-                            // Playing: the next bar renders the new chord.
-                            self.swapChordIfPlaying()
-                            AppModel.shared.addLog("Strum chord → \(voicing.name) (pad)")
-                        }
+                        // Build 126 (Rich 10:49): the C1 must NEVER trigger our
+                        // strums — the pad touch no longer fires the figure
+                        // (build 118's touch-fire retired; the donor guitar
+                        // plays the chords itself). The touch only tracks the
+                        // armed voicing; a PLAYING layer (MIDI/UI-started)
+                        // still follows the chord change.
+                        if self.isPlaying { self.swapChordIfPlaying() }
                         return
                     }
                 }
@@ -604,12 +593,11 @@ final class StrumPlayer: ObservableObject {
     private var lastPadSig: UInt32 = 0
 
     func noteFretMask(_ mask: UInt8) {
-        let prev = self.lastFretMask
         self.lastFretMask = mask
         guard mask != 0 else { return } // lift — the figure rings on
         let deg = mask.trailingZeroBitCount  // pos1=0x02→1 … pos7=0x80→7
         guard (1...7).contains(deg) else { return }
-        let isTouch = (prev == 0)
+        // (build 123: isTouch/prev tracking retired with the fret-fire branch)
         DispatchQueue.main.async {
             guard !self.auditioning else { return } // the editor owns the chord while auditioning
 
@@ -630,21 +618,10 @@ final class StrumPlayer: ObservableObject {
             // re-strum. Position→position moves keep the 105/106 transition.
             // A second touch within 120ms is a finger-roll settle: re-voice,
             // don't re-fire.
-            if isTouch, self.armed, !self.isPlaying,
-               !(LooperEngine.shared.isRunning && !LooperEngine.shared.isPerforming) {
-                if let last = self.lastFireAt, Date().timeIntervalSince(last) < 0.12, self.oneShotActive {
-                    let oldV = self.currentVoicing()
-                    self.degree = deg
-                    self.activeAssignment = nil
-                    self.updateChordName()
-                    self.swapOneShotChord(oldVoicing: oldV, newVoicing: self.currentVoicing())
-                    return
-                }
-                self.degree = deg
-                self.activeAssignment = nil
-                self.fireFigure(guitarBpm: self.lastGuitarBpm, velocity: 0, source: "fret")
-                return
-            }
+            // Build 123 (Rich 14:52): build 115's fret-touch firing is
+            // retired along with the paddle fire — a touch now only tracks
+            // the chord silently (degree path below); the figure starts ONLY
+            // on the MIDI command (Ch10 PC2).
             guard deg != self.degree else { return }
             let oldV = self.currentVoicing()
             self.degree = deg

@@ -614,7 +614,10 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         }
     }
 
-    /// Start our beat from a guitar gesture. Tempo rule (builds 41+44): a
+    /// Guitar drum-gesture handler. Build 126 (Rich 10:49): NO LONGER starts
+    /// our beat — the C1 must never trigger the app's strums/drums ("the donor
+    /// guitar does all that"). The gesture now only restores the C1's OWN
+    /// saved drum/bass levels and handles tempo. Tempo rule (builds 41+44): a
     /// byte[7] that moved WITHIN the gesture window (<2s) is contamination from
     /// the gesture's own pad presses (the beat pad doubles as tap-tempo —
     /// 5:21's 130→51) → the banked song tempo wins and is reasserted on the C1
@@ -632,17 +635,14 @@ final class BLEManager: NSObject, ObservableObject, CBCentralManagerDelegate, CB
         } else if MIDIHandler.lastSentTempoBPM != guitarBpm {
             MIDIHandler.bankExternalTempo(bpm: guitarBpm)
         }
-        if BeatPlayer.shared.isPlaying, BeatPlayer.shared.currentBPM == target {
-            // Same gesture at the same tempo while already playing = TRANSITION
-            // (Rich 15:39: the variation change is beat pad + paddle mid-song —
-            // wire-identical to a start). One-bar fill, bar-synced; the loop
-            // resumes right after it (Rich 16:27).
-            AppModel.shared.addLog("Guitar transition — one-bar fill")
-            BeatPlayer.shared.playTransitionFill()
-        } else {
-            AppModel.shared.addLog("Guitar \(reason) — DUUDU @ \(target) BPM")
-            BeatPlayer.shared.start(bpm: target)
-        }
+        // Build 126 (Rich 10:49): the C1 must NEVER trigger the app's strums
+        // or drum patterns — the donor guitar plays them itself. The gesture
+        // ONLY restores the C1's own saved drum/bass levels (the guitar's own
+        // mix, build 125). BeatPlayer/LooperEngine/StrumPlayer stay silent on
+        // every guitar event, forever.
+        AppModel.shared.addLog("Guitar \(reason) — C1 vols restored; app layers silent (126)")
+        if let dv = MIDIHandler.armedDrumVol { MIDIHandler.trigger(channel: 8, program: dv + 1) }
+        if let bv = MIDIHandler.armedBassVol { MIDIHandler.trigger(channel: 9, program: bv + 1) }
     }
 
     /// Tap-tempo follow (build 44): the beat pad is Rich's tempo input — tapping
