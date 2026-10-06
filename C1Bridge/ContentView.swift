@@ -54,6 +54,10 @@ struct ContentView: View {
             chordsView
                 .tabItem { Label("Chords", systemImage: "square.grid.3x3") }
                 .tag(9)
+
+            customMapBuilderView
+                .tabItem { Label("Custom Maps", systemImage: "pencil.and.outline") }
+                .tag(10)
         }
         .navigationTitle(ble.isConnected ? "C1: Connected" : "C1: Disconnected")
         .navigationBarTitleDisplayMode(.inline)
@@ -115,6 +119,11 @@ struct ContentView: View {
     }
 
     // MARK: - Activity Log
+
+    // MARK: - Custom Map Builder UI
+    private var customMapBuilderView: some View {
+        CustomMapBuilder()
+    }
     private var logView: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
@@ -298,3 +307,36 @@ struct ContentView: View {
         }
     }
 }
+
+// MARK: - Custom Map Builder View
+struct CustomMapBuilder: View {
+    @ObservedObject private var library = ChordTableLibrary.shared
+    @State private var name = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Custom Chord‑Map Builder")
+                .font(.title2)
+                .bold()
+            TextField("Table name", text: $name)
+                .textFieldStyle(.roundedBorder)
+            Button("Create Flat/Natural/Sharp map") {
+                let tableName = name.isEmpty ? "(new)" : name
+                let table = ChordTable.flatNaturalSharp(name: tableName)
+                library.add(table)
+                AppModel.shared.addLog("Custom map \"\(table.name)\" created")
+                name = ""
+            }
+            .buttonStyle(.borderedProminent)
+            Divider()
+            Text("Saved tables:")
+                .font(.headline)
+            List {
+                ForEach(library.tables) { t in
+                    Text(t.name)
+                }
+            }
+        }
+        .padding()
+    }
+}
+

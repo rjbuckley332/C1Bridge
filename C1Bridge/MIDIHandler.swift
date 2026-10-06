@@ -247,6 +247,21 @@ class MIDIHandler {
             let inst = (channel == 8) ? "02" : "03"
             sendHexWithLog("b11e190200" + String(format: "%02x", program - 1) + inst, name: "Vol \(program - 1)%")
         }
+
+        // 3b. CUSTOM CHORD MAPS: Channel 10, programs 4-128 (Rich 2026-10-06:
+        // "chord map selection is channel 10"). PC 1-3 stay reserved
+        // (reset/start/stop, handled below). Arms the saved ChordTable whose
+        // midiChannel/midiProgram match; logs either way.
+        else if channel == 10 && program >= 4 {
+            Task { @MainActor in
+                if let table = ChordTableLibrary.shared.table(forMidiChannel: 10, program: program) {
+                    StrumPlayer.shared.setChordTable(table)
+                    AppModel.shared.addLog("Chord map armed: \"\(table.name)\" (Ch10 PC\(program))")
+                } else {
+                    AppModel.shared.addLog("Chord map: no table saved for Ch10 PC\(program)")
+                }
+            }
+        }
         
         // 4. GLOBAL RESET: Channel 10 PC 1 — also stops the beat
         else if channel == 10 && program == 1 {

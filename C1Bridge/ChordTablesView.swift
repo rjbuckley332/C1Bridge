@@ -14,6 +14,7 @@ struct ChordTablesView: View {
     @State private var editRoot = 0
     @State private var editQuality: ChordAssignment.Quality = .major
     @State private var editLocked = false
+    @State private var programNumber: Int = 1
 
     var body: some View {
         Form {
@@ -82,8 +83,10 @@ struct ChordTablesView: View {
                     .tint(.red)
                     .disabled(loadedName == nil)
                 }
+
+                Stepper("MIDI program: PC \(programNumber) · Ch 10", value: $programNumber, in: 1...128)
             } header: {
-                Text(loadedName.map { _ in "Table — \(loadedName!)" } ?? "No table loaded")
+                Text(loadedName != nil ? "Table — \(loadedName!)\(midiSuffix)" : "No table loaded")
             } footer: {
                 Text("Tap a saved table to load it, New for a blank slate, Save… to write to the library, Delete to remove the current table. (Re-saving a name updates every song that references it.)")
             }
@@ -255,15 +258,27 @@ struct ChordTablesView: View {
 
     // MARK: - Actions
 
+    /// " · Ch10 PC5" style suffix for the section header — built outside
+    /// the ViewBuilder so bare if-statements don't break the build.
+    private var midiSuffix: String {
+        var s = ""
+        if let ch = table.midiChannel { s += " · Ch\(ch)" }
+        if let pc = table.midiProgram { s += " PC\(pc)" }
+        return s
+    }
+
     private func loadTable(_ t: ChordTable) {
         table = t
         loadedName = t.name
+        programNumber = t.midiProgram ?? 1
     }
 
     private func saveCurrent() {
         let name = nameInput.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         table.name = name
+        table.midiChannel = 10
+        table.midiProgram = programNumber
         library.add(table)
         loadedName = name
         nameInput = ""
