@@ -15,27 +15,31 @@ struct ChordAssignment: Codable, Hashable {
     /// only (it can shift with the key).
     var learnedNotePC: Int?
     /// Transposition mode (Rich 16:58: "follow the key" is the norm;
-    /// specials CHOOSE): nil/false = authored in C, transposed by the song's
-    /// key at fire time (borrowed chords like ♭III/♭VI/♭VII ride along);
-    /// true = key-locked absolute (pedal tone / signature chord). Optional
-    /// for backward Codable compatibility with tables saved before 118.
+    /// specials CHOOSE). Kept for backward compatibility with tables saved
+    /// before the "always‑track‑key" change (build 118 → current).
     var locked: Bool?
 
-    /// The sounding root for the current key: transpose unless locked.
+    /// The sounding root for the current key.
+    ///
+    /// All custom chord maps always track the key — whether the key is
+    /// changed via the hardware wheel or a MIDI command. The stored `rootPC`
+    /// is treated as an interval from the key's tonic, and the current key
+    /// is always added to produce the final pitch class. The `locked` field
+    /// is ignored (retained only for backward compatibility with old data).
     func soundingRoot(keyRootPC: Int) -> Int {
-        locked == true ? rootPC : (rootPC + keyRootPC) % 12
+        (rootPC + keyRootPC) % 12
     }
 
     enum Quality: String, Codable, CaseIterable {
-        case major, minor, dim, aug, dom7, sus2, sus4, sus6, dim7, maj7, m7, m7b5
+        case major, minor, dim, aug, dom7, sus2, sus4, sus6, dim7, maj7, m7, m7b5, add9
         var suffix: String { switch self {
             case .major: return ""; case .minor: return "m"; case .dim: return "°"; case .aug: return "+"
             case .dom7: return "7"; case .sus2: return "sus2"; case .sus4: return "sus4"; case .sus6: return "sus6"
-            case .dim7: return "°7"; case .maj7: return "maj7"; case .m7: return "m7"; case .m7b5: return "m7♭5"
+            case .dim7: return "°7"; case .maj7: return "maj7"; case .m7: return "m7"; case .m7b5: return "m7♭5"; case .add9: return "add9"
         } }
         /// Slot-1 interval (the "third" slot — sus chords put their color here).
         var t3: Int { switch self {
-            case .major, .aug, .dom7, .maj7: return 4
+            case .major, .aug, .dom7, .maj7, .add9: return 4
             case .minor, .dim, .dim7, .m7, .m7b5: return 3
             case .sus2: return 2
             case .sus4: return 5
@@ -43,7 +47,7 @@ struct ChordAssignment: Codable, Hashable {
         } }
         /// Slot-2 interval for triads (ignored when flat7 is set).
         var t5: Int { switch self {
-            case .major, .minor, .dom7, .sus2, .sus4, .maj7, .m7: return 7
+            case .major, .minor, .dom7, .sus2, .sus4, .maj7, .m7, .add9: return 7
             case .dim, .dim7, .m7b5: return 6
             case .aug: return 8
             case .sus6: return 9
@@ -54,6 +58,7 @@ struct ChordAssignment: Codable, Hashable {
             case .dom7, .m7, .m7b5: return 10
             case .maj7: return 11
             case .dim7: return 9
+            case .add9: return 2    // voices root+3+9 — fifth dropped, same shell style as the 7th chords
             default: return nil
         } }
     }
@@ -72,11 +77,15 @@ struct ChordAssignment: Codable, Hashable {
 struct ChordTable: Identifiable, Codable, Hashable {
     var id = UUID()
     var name: String
-    /// Row-major: index = (position-1)*3 + row, row 0=A / 1=B / 2=C.
+    /// Row-major: index = (position-1)*3 + row, row 0=Flat / 1=Natural / 2=Sharp.
     var cells: [ChordAssignment?]
     var createdAt = Date()
+    /// Optional MIDI trigger: a Program Change on this channel/program arms
+    /// this table (Rich 2026-10-06). nil = selectable by name only.
+    var midiChannel: Int?
+    var midiProgram: Int?
 
-    static let rowLabels = ["A", "B", "C"]
+    static let rowLabels = ["Flat", "Natural", "Sharp"]
     static func empty(name: String) -> ChordTable {
         ChordTable(name: name, cells: Array(repeating: nil, count: 21))
     }
@@ -121,6 +130,21 @@ struct ChordTable: Identifiable, Codable, Hashable {
         t.cells[index(position: 7, row: 1)] = ChordAssignment(signature: nil, rootPC: 10, quality: .major, learnedNotePC: nil)
         return t
     }
+
+    /// Flat / Natural / Sharp grid (Rich 2026-10-06): every position keeps
+    /// the starter's diatonic chord in Natural, with the root a semitone
+    /// below in Flat and a semitone above in Sharp. All transpose with the
+    /// key via soundingRoot. Qualities default to major; edit to taste.
+    static func flatNaturalSharp(name: String) -> ChordTable {
+        var t = starter(name: name)
+        let diatonicRoots = [0, 2, 4, 5, 7, 9, 11] // major scale, per position 1...7
+        for pos in 1...7 {
+            let root = diatonicRoots[pos - 1]
+            t.cells[index(position: pos, row: 0)] = ChordAssignment(signature: nil, rootPC: (root + 11) % 12, quality: .major, learnedNotePC: nil)
+            t.cells[index(position: pos, row: 2)] = ChordAssignment(signature: nil, rootPC: (root + 1) % 12, quality: .major, learnedNotePC: nil)
+        }
+        return t
+    }
 }
 
 /// The chord-table library. Mirrors StrumBeatLibrary: UserDefaults +
@@ -156,6 +180,11 @@ final class ChordTableLibrary: ObservableObject {
 
     func table(named name: String) -> ChordTable? {
         tables.first { $0.name.lowercased() == name.lowercased() }
+    }
+
+    /// First table armed on the given MIDI channel/program pair (build 129).
+    func table(forMidiChannel channel: Int, program: Int) -> ChordTable? {
+        tables.first { $0.midiChannel == channel && $0.midiProgram == program }
     }
 
     // MARK: - Persistence
