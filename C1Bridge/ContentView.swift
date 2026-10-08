@@ -312,6 +312,7 @@ struct ContentView: View {
 struct CustomMapBuilder: View {
     @ObservedObject private var library = ChordTableLibrary.shared
     @State private var name = ""
+    @State private var showConfirmClear = false
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Custom Chord‑Map Builder")
@@ -319,9 +320,9 @@ struct CustomMapBuilder: View {
                 .bold()
             TextField("Table name", text: $name)
                 .textFieldStyle(.roundedBorder)
-            Button("Create Flat/Natural/Sharp map") {
+            Button("Create factory chord map") {
                 let tableName = name.isEmpty ? "(new)" : name
-                let table = ChordTable.flatNaturalSharp(name: tableName)
+                let table = ChordTable.starter(name: tableName)
                 library.add(table)
                 AppModel.shared.addLog("Custom map \"\(table.name)\" created")
                 name = ""
@@ -334,6 +335,20 @@ struct CustomMapBuilder: View {
                 ForEach(library.tables) { t in
                     Text(t.name)
                 }
+            }
+            Button("Delete all tables", role: .destructive) {
+                showConfirmClear = true
+            }
+            .buttonStyle(.bordered)
+            .tint(.red)
+            .disabled(library.tables.isEmpty)
+            .alert("Delete all chord tables?", isPresented: $showConfirmClear) {
+                Button("Delete all", role: .destructive) {
+                    library.removeAll()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This removes every saved table on this device.")
             }
         }
         .padding()

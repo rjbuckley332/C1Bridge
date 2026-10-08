@@ -47,12 +47,12 @@ final class StrumPlayer: ObservableObject {
     /// table assignment (voiceAssignment). Build 118 froze the voicing at
     /// press time in `soundingVoicing`, which the renderers never read —
     /// every pad sounded the stale degree (Rich 21:30: "not strumming").
-    private var activeAssignment: ChordAssignment? = nil
+    private var activeAssignment: (assign: ChordAssignment, position: Int)? = nil
 
     /// The chord to render RIGHT NOW: the table assignment when one is
     /// active, else the degree path (pre-table behavior).
     private func currentVoicing() -> (name: String, notes: [Int]) {
-        if let a = activeAssignment { return voiceAssignment(a) }
+        if let active = activeAssignment { return voiceAssignment(active.assign, position: active.position) }
         return voiceChord()
     }
     private static let majorScale = [0, 2, 4, 5, 7, 9, 11]
@@ -125,8 +125,8 @@ final class StrumPlayer: ObservableObject {
 
     /// Voice a chord-table assignment (build 118). Looks up the sounding
     /// root for the current key, builds the name, and calls the core.
-    private func voiceAssignment(_ a: ChordAssignment) -> (name: String, notes: [Int]) {
-        let rootPC = a.soundingRoot(keyRootPC: self.keyRootPC)
+    private func voiceAssignment(_ a: ChordAssignment, position: Int) -> (name: String, notes: [Int]) {
+        let rootPC = a.soundingRoot(position: position, keyRootPC: self.keyRootPC)
         let name = Self.pcNames[rootPC] + a.quality.suffix
         return voiceChord(rootPC: rootPC, t3: a.quality.t3, t5: a.quality.t5, flat7: a.quality.flat7, name: name)
     }
@@ -564,12 +564,12 @@ final class StrumPlayer: ObservableObject {
         DispatchQueue.main.async {
             // Build 118: if not learning and a chord table is armed, track it.
             if self.padLearnHandler == nil, let table = self.armedChordTable {
-                for cell in table.cells {
+                for (i, cell) in table.cells.enumerated() {
                     if cell?.signature == sig {
                         let assign = cell!
                         // Audition guard: the chord-table editor owns the layer.
                         guard !self.auditioning else { return }
-                        self.activeAssignment = assign
+                        self.activeAssignment = (assign, i / 3 + 1)
                         self.updateChordName()
                         // Build 126 (Rich 10:49): the C1 must NEVER trigger our
                         // strums — the pad touch no longer fires the figure

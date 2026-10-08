@@ -355,6 +355,37 @@ class MIDIHandler {
         sendHexWithLog("b11e02010002", name: "Apply All")
     }
 
+    /// Send a chord table to the C1 hardware in real time. Rich 2026-10-07:
+    /// "use the bit map technology from our old Rock Flats and apply it to our
+    /// new custom map technique" — the PROVEN flow is the Rock-Key sequence,
+    /// byte-for-byte (Activity-log verified): KEY PAYLOAD FIRST, then
+    /// Unlock → Mode → map (addr 0x15) → Apply All. Map-only writes (no key
+    /// frame) flip-flopped 7/21-pad all morning; Rock C key-first landed
+    /// pad-for-pad AND engaged Advanced (official-app screenshot proof).
+    /// Key = the last key this app sent (default C) — NOTE: the key select
+    /// re-asserts the app's key on the guitar. Tempo re-send at 900 ms: the
+    /// commit's state reload is ASYNC over an ~800 ms window (build-75
+    /// lesson) — the old 250 ms fire landed INSIDE it.
+    /// NOTE: writes the HARDWARE grid only — does not arm the table app-side.
+    static func sendChordMapToC1(_ table: ChordTable) {
+        let keyProgram = currentKeyRootPC + 1
+        let keyName = keyTable[keyProgram]?.name ?? "C"
+        if let entry = keyTable[keyProgram] {
+            sendHexWithLog(entry.payloadHex, name: "Key \(entry.name)")
+        }
+        sendHexWithLog("b11e14010002", name: "Unlock")
+        sendHexWithLog("b11e02010006", name: "Mode")
+        sendHexWithLog(table.hardwareMapHex(), name: "Map \"\(table.name)\"")
+        sendHexWithLog("b11e02010002", name: "Apply All")
+        if hasSongTempo {
+            let bpm = lastSentTempoBPM
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                triggerTempo(bpm: bpm)
+            }
+        }
+        AppModel.shared.addLog("Chord map \"\(table.name)\" sent to C1 (key \(keyName) first, 21 pads)")
+    }
+
     private static func xorHex(_ hex: String, key: UInt8) -> String {
         let cleaned = hex
             .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)

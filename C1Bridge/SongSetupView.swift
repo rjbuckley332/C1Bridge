@@ -198,6 +198,37 @@ struct SongSetupView: View {
                 }
             }
 
+            // Direct key fire (Rich 2026-10-07: "a button next to every key so
+            // I can send that directly to the C1… through BLE manager just like
+            // it was a midi command"). Send-only — the Menu above still sets
+            // the song key; these fire MIDIHandler.trigger(Ch7) live = the
+            // exact wire path of an incoming MIDI program change. Standard =
+            // key payload + Commit (NO map); Rock (orange) = key + Rock map +
+            // Apply All. Debug use: standard tells you if the key alone
+            // engages 21-pad mode; Rock is the trusted key+map control.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Send key to C1 — live, like a MIDI command")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 4) {
+                    ForEach(0..<Self.keyNames.count, id: \.self) { i in
+                        Button(Self.keyNames[i]) {
+                            MIDIHandler.trigger(channel: 7, program: i + 1)
+                        }
+                        .buttonStyle(.bordered)
+                        .font(.caption)
+                    }
+                    ForEach(0..<Self.keyNames.count, id: \.self) { i in
+                        Button("R \(Self.keyNames[i])") {
+                            MIDIHandler.trigger(channel: 7, program: i + 14)
+                        }
+                        .buttonStyle(.bordered)
+                        .font(.caption)
+                        .tint(.orange)
+                    }
+                }
+            }
+
             HStack {
                 Text("Tempo")
                 Spacer()

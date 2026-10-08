@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Chord-table editor (build 116): list-style learn interface for the 21
-/// pad → chord cells (7 fret positions × 3 rows A/B/C). No grid — a clean
-/// scrollable list matching the StrumBeatsView house style.
+/// pad → chord cells (7 fret positions × 3 rows). Build 136: the row IS the
+/// chord type (add9 / Major / minor) and each pad's Flat/Natural/Sharp is
+/// its root data (Rich 2026-10-07) — no absolute note names anywhere.
 struct ChordTablesView: View {
     @ObservedObject private var library = ChordTableLibrary.shared
     @State private var table = ChordTable.starter(name: "(new)")
@@ -11,7 +12,7 @@ struct ChordTablesView: View {
     @State private var nameInput = ""
     @State private var editingCell: Int? = nil
     @State private var learnCell: Int? = nil
-    @State private var editRoot = 0
+    @State private var editAccidental: Accidental = .natural
     @State private var editQuality: ChordAssignment.Quality = .major
     @State private var editLocked = false
     @State private var programNumber: Int = 1
@@ -21,41 +22,40 @@ struct ChordTablesView: View {
             // MARK: - Table management
 
             Section {
-                if !library.tables.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(library.tables) { t in
-                                Button {
-                                    loadTable(t)
-                                } label: {
-                                    Text(t.name)
-                                        .font(.caption)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(loadedName == t.name ? Color.accentColor : Color(.secondarySystemBackground))
-                                        .foregroundStyle(loadedName == t.name ? .white : .primary)
-                                        .cornerRadius(12)
-                                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        // Factory Default is always the first chip (Rich
+                        // 2026-10-07) — tap loads the official grid into the
+                        // working copy; →C1 writes it to the guitar live.
+                        mapChip(name: "Factory Default", isLoaded: loadedName == nil) {
+                            table = ChordTable.starter(name: "(new)")
+                            loadedName = nil
+                        } send: {
+                            MIDIHandler.sendChordMapToC1(ChordTable.starter(name: "Factory Default"))
+                        }
+                        ForEach(library.tables) { t in
+                            mapChip(name: t.name, isLoaded: loadedName == t.name) {
+                                loadTable(t)
+                            } send: {
+                                MIDIHandler.sendChordMapToC1(t)
                             }
                         }
-                        .padding(.vertical, 4)
                     }
+                    .padding(.vertical, 4)
                 }
 
                 HStack(spacing: 12) {
-                    Menu {
-                        Button("Factory grid") {
-                            table = ChordTable.starter(name: "(new)")
-                            loadedName = nil
-                        }
-                        Button("Rock Flats grid") {
-                            table = ChordTable.rockFlats(name: "(new)")
-                            loadedName = nil
-                        }
+                    // Send to C1 = write the working copy (Factory Default or
+                    // a loaded map, edits included) to the guitar in real time
+                    // (Rich 2026-10-07). Per-chip →C1 buttons send without loading.
+                    Button {
+                        MIDIHandler.sendChordMapToC1(table)
                     } label: {
-                        Label("New", systemImage: "plus")
+                        Label("Send to C1", systemImage: "guitars")
+                            .fixedSize()
                     }
                     .buttonStyle(.bordered)
+                    .tint(.green)
 
                     Spacer()
 
@@ -78,29 +78,40 @@ struct ChordTablesView: View {
                     } label: {
                         Label("Delete", systemImage: "trash")
                             .fontWeight(.semibold)
+                            .fixedSize()
                     }
                     .buttonStyle(.bordered)
                     .tint(.red)
                     .disabled(loadedName == nil)
                 }
 
-                Stepper("MIDI program: PC \(programNumber) · Ch 10", value: $programNumber, in: 1...128)
+                Stepper("MIDI program: PC \(programNumber) · Ch 10", value: Binding(
+                    get: { programNumber },
+                    set: { newValue in
+                        programNumber = newValue
+                        if loadedName != nil {
+                            table.midiChannel = 10
+                            table.midiProgram = newValue
+                            persistIfLoaded()
+                        }
+                    }
+                ), in: 1...128)
             } header: {
-                Text(loadedName != nil ? "Table — \(loadedName!)\(midiSuffix)" : "No table loaded")
+                Text(loadedName != nil ? "Table — \(loadedName!)\(midiSuffix)" : "Factory Default (unsaved)")
             } footer: {
-                Text("Tap a saved table to load it, New for a blank slate, Save… to write to the library, Delete to remove the current table. (Re-saving a name updates every song that references it.)")
+                Text("Factory Default is the official grid — change anything and Save… names it as a custom map. Tap a map to load it; edits to a loaded map stick automatically. →C1 writes a map straight to the guitar in real time (a banked tempo is re-sent after). Delete removes the current map.")
             }
 
             // MARK: - 21 cells
 
             Section {
                 ForEach(0..<21, id: \.self) { i in
-                    cellRow(index: i)
+                    cellRow(displayIndex: i)
                 }
             } header: {
                 Text("Pad assignments — \(table.cells.filter { $0 != nil }.count)/21 assigned")
             } footer: {
-                Text("Tap a row to edit its chord assignment. Tap Learn to bind a physical pad. The learned note (byte[12]) shifts with key but the pad signature (bytes 2,3,4,13) is stable.")
+                Text("Rows run in the guitar's physical order, top pad first: Variant, Diatonic, 7th — matching the official app's left-to-right columns. Every pad is editable: root (Flat/Natural/Sharp) and type (7/M/m/m7/maj7/add9). Tap a row to edit; tap Learn to bind a physical pad. →C1 sends key-first (the proven Rock-Key flow).")
             }
         }
         .navigationTitle("Chords")
@@ -123,26 +134,38 @@ struct ChordTablesView: View {
 
     // MARK: - Cell row
 
+    /// Display order (Rich 2026-10-07): on the physical C1 the fret's TOP pad
+    /// is the official app's LEFT column (Variant); the bottom pad is the 7th.
+    /// The list runs in that physical order — Variant, Diatonic, 7th.
+    /// STORAGE stays wire-ordered (byte-row 0 = 7th); only the view flips.
+    private static let displayRowLabels = ["Variant", "Diatonic", "7th"]
+    /// Display index (0…20, position-major, physical top→bottom) →
+    /// wire-ordered cell index (byte-row 0 = 7th).
+    private func cellIndex(displayIndex d: Int) -> Int {
+        (d / 3) * 3 + (2 - (d % 3))
+    }
+
     @ViewBuilder
-    private func cellRow(index cellIndex: Int) -> some View {
+    private func cellRow(displayIndex d: Int) -> some View {
+        let cellIndex = cellIndex(displayIndex: d)
         let cell = table.cells[cellIndex]
-        let pos = cellIndex / 3 + 1
-        let row = ChordTable.rowLabels[cellIndex % 3]
-        let label = "\(pos)\(row)"
+        let pos = d / 3 + 1
+        let row = Self.displayRowLabels[d % 3]
+        let label = "\(pos) \(row)"
 
         HStack(spacing: 8) {
             Text(label)
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
-                .frame(width: 40, alignment: .trailing)
+                .frame(width: 72, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(cell.map { $0.name } ?? "—")
+                Text(cell.map { $0.accidentalWord } ?? "—")
                     .font(.system(size: 14))
 
                 if let ca = cell {
                     let sig = ca.signature.map { String(format: "%08X", $0) } ?? "—"
                     let noteName = ca.learnedNotePC.map { ChordAssignment.pcNames[$0] } ?? "—"
-                    Text("\(noteName) · \(sig)")
+                    Text("\(ca.name(position: pos)) · \(noteName) · \(sig)")
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -156,14 +179,18 @@ struct ChordTablesView: View {
                     let existing = _table.wrappedValue.cells[cellIndex]
                     let newAssignment = ChordAssignment(
                         signature: sig,
-                        rootPC: existing != nil ? existing!.rootPC : (notePC < 12 ? Int(notePC) : 0),
-                        quality: existing != nil ? existing!.quality : .major,
-                        learnedNotePC: notePC < 12 ? Int(notePC) : nil
+                        accidental: existing?.accidental ?? 0,
+                        quality: existing?.quality ?? ChordTable.factoryQuality(position: cellIndex / 3 + 1, row: cellIndex % 3),
+                        learnedNotePC: notePC < 12 ? Int(notePC) : nil,
+                        locked: existing?.locked ?? nil
                     )
                     _table.wrappedValue.cells[cellIndex] = newAssignment
+                    if _loadedName.wrappedValue != nil {
+                        ChordTableLibrary.shared.add(_table.wrappedValue, log: false)
+                    }
                     _learnCell.wrappedValue = nil
                     StrumPlayer.shared.padLearnHandler = nil
-                    AppModel.shared.addLog(String(format: "Learned pad → %d%@ (sig %08X)", pos, row, sig))
+                    AppModel.shared.addLog(String(format: "Learned pad → %d %@ (sig %08X)", pos, row, sig))
                     return true
                 }
             } label: {
@@ -185,27 +212,88 @@ struct ChordTablesView: View {
         .foregroundColor(learnCell == cellIndex ? .yellow : .primary)
     }
 
+    /// One map chip: tap the name to load, tap →C1 to write it straight
+    /// to the guitar in real time (Rich 2026-10-07).
+    @ViewBuilder
+    private func mapChip(name: String, isLoaded: Bool, load: @escaping () -> Void, send: @escaping () -> Void) -> some View {
+        HStack(spacing: 4) {
+            Button(action: load) {
+                Text(name)
+                    .font(.caption)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(isLoaded ? Color.accentColor : Color(.secondarySystemBackground))
+                    .foregroundStyle(isLoaded ? .white : .primary)
+                    .cornerRadius(12)
+            }
+            Button(action: send) {
+                Text("→C1")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(Color.green)
+                    .foregroundStyle(.white)
+                    .cornerRadius(8)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Flat/Natural/Sharp — the pad's root data. The fret supplies the
+    /// degree note; this shifts it one semitone (Rich 2026-10-07).
+    private enum Accidental: String, CaseIterable, Identifiable {
+        case flat = "♭"
+        case natural = "♮"
+        case sharp = "♯"
+        var id: String { rawValue }
+        var offset: Int { self == .flat ? -1 : (self == .sharp ? 1 : 0) }
+        init?(offset: Int) {
+            switch offset {
+            case -1: self = .flat
+            case 0:  self = .natural
+            case 1:  self = .sharp
+            default: return nil
+            }
+        }
+    }
+
+    /// Preview chord name (C-reference) for the sheet's current picks.
+    private var previewName: String {
+        let pos = (editingCell ?? 0) / 3 + 1
+        let root = (ChordTable.degreeRoots[pos - 1] + editAccidental.offset + 12) % 12
+        return ChordAssignment.pcNames[root] + editQuality.suffix
+    }
+
     // MARK: - Chord picker (sheet)
 
     private var chordPickerView: some View {
         NavigationView {
             Form {
-                Section("Root") {
-                    Picker("Root", selection: $editRoot) {
-                        ForEach(0..<12, id: \.self) { i in
-                            Text(ChordAssignment.pcNames[i]).tag(i)
+                Section {
+                    Picker("Flat / Natural / Sharp", selection: $editAccidental) {
+                        ForEach(Accidental.allCases) { acc in
+                            Text(acc.rawValue).tag(acc)
                         }
                     }
                     .pickerStyle(.wheel)
+                } header: {
+                    Text("Root — Flat / Natural / Sharp")
+                } footer: {
+                    Text("This IS the pad's root data: the fret sets the degree note, Flat/Natural/Sharp shifts it one semitone. The result transposes with the song key.")
                 }
 
-                Section("Quality") {
-                    Picker("Quality", selection: $editQuality) {
+                Section {
+                    Picker("Chord type", selection: $editQuality) {
                         ForEach(ChordAssignment.Quality.allCases, id: \.self) { q in
-                            Text(q.rawValue).tag(q)
+                            Text(q.displayName).tag(q)
                         }
                     }
                     .pickerStyle(.wheel)
+                } header: {
+                    Text("Chord type")
+                } footer: {
+                    Text("The official six: 7 / M / m / m7 / maj7 / add9. Flags 0/1/2 are proven (M/m/7); m7/maj7/add9 ride guessed flags 3/4/5 — if a pad sounds like a different type than you picked, tell Alfred and the flag gets swapped.")
                 }
 
                 // Build 118: key-lock toggle
@@ -223,14 +311,14 @@ struct ChordTablesView: View {
                         Text("Assigned chord")
                             .fontWeight(.semibold)
                         Spacer()
-                        Text(ChordAssignment(rootPC: editRoot, quality: editQuality).name)
+                        Text(previewName)
                             .fontWeight(.medium)
                     }
                 } header: {
-                    Text("Preview")
+                    Text("Preview (key of C)")
                 }
             }
-            .navigationTitle(editingCell.map { "\(ChordTable.rowLabels[$0 % 3])" } ?? "")
+            .navigationTitle(editingCell.map { "\($0 / 3 + 1) \(Self.displayRowLabels[2 - ($0 % 3)])" } ?? "")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -245,12 +333,12 @@ struct ChordTablesView: View {
         }
         .onAppear {
             if let cell = editingCell.flatMap({ table.cells[$0] }) {
-                editRoot = cell.rootPC
+                editAccidental = Accidental(offset: cell.accidental) ?? .natural
                 editQuality = cell.quality
                 editLocked = cell.locked == true
             } else {
-                editRoot = 0
-                editQuality = .major
+                editAccidental = .natural
+                editQuality = ChordTable.factoryQuality(position: (editingCell ?? 0) / 3 + 1, row: (editingCell ?? 0) % 3)
                 editLocked = false
             }
         }
@@ -288,11 +376,20 @@ struct ChordTablesView: View {
         guard let i = editingCell else { return }
         table.cells[i] = ChordAssignment(
             signature: table.cells[i]?.signature,
-            rootPC: editRoot,
+            accidental: editAccidental.offset,
             quality: editQuality,
             learnedNotePC: table.cells[i]?.learnedNotePC,
             locked: editLocked ? true : nil
         )
+        persistIfLoaded()
         editingCell = nil
+    }
+
+    /// Auto-persist (Rich 2026-10-06): when a named table is loaded, every
+    /// mutation writes straight back to the library so edits stick without an
+    /// explicit Save…. Name-is-identity upsert in add() does the update.
+    private func persistIfLoaded() {
+        guard loadedName != nil else { return }
+        library.add(table, log: false)
     }
 }
