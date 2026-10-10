@@ -6,6 +6,8 @@ struct ContentView: View {
     @ObservedObject private var keepAlive = BackgroundAudioManager.shared
     @ObservedObject private var sync = OnSongSyncManager.shared
     @State private var selectedTab = 0
+    @State private var exportURL: URL?
+    @State private var showShareSheet = false
     
     private var versionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
@@ -91,6 +93,15 @@ struct ContentView: View {
         } message: { offer in
             Text("Backup from \(offer.payload.deviceName) — \(offer.payload.exportedAt.formatted(date: .abbreviated, time: .shortened)).\n\n\(offer.payload.presets.count) songs • \(offer.payload.favorites.count) favorites • \(offer.payload.suggestedTempos.count) tempos • \(offer.payload.beats.count) beats\n\nThis REPLACES all local data on this device.")
         }
+        .sheet(isPresented: $showShareSheet) {
+            if let url = exportURL {
+                ActivityView(activityItems: [url], applicationActivities: nil)
+                    .onDisappear {
+                        exportURL = nil
+                        showShareSheet = false
+                    }
+            }
+        }
     }
 
     // MARK: - Song Setup (voice-first builder)
@@ -151,6 +162,10 @@ struct ContentView: View {
             HStack {
                 Text("System Activity").font(.headline)
                 Spacer()
+                Button("Export") {
+                    let url = model.exportLog()
+                    if let url = url { exportURL = url; showShareSheet = true }
+                }.font(.caption)
                 Button("Clear") { model.clearLogs() }.font(.caption)
             }
             
@@ -168,6 +183,17 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal)
+    }
+
+    struct ActivityView: UIViewControllerRepresentable {
+        var activityItems: [Any]
+        var applicationActivities: [UIActivity]?
+        
+        func makeUIViewController(context: Context) -> UIActivityViewController {
+            UIActivityViewController(activityItems: activityItems, applicationActivities: applicationActivities)
+        }
+        
+        func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
     }
 
     // MARK: - Tempo Reference

@@ -386,6 +386,36 @@ class MIDIHandler {
         AppModel.shared.addLog("Chord map \"\(table.name)\" sent to C1 (key \(keyName) first, 21 pads)")
     }
 
+    /// Nibble probe (Rich 2026-10-08: "any undocumented chord types like
+    /// D2?" → "yes please"). Maps flags 3–15 across the pads to discover
+    /// undocumented chord voicings in the C1's firmware. Layout:
+    ///   middle pads (Diatonic row) frets 1–7 = flags 3–9, roots C D E F G A B
+    ///   top pads    (Variant row)  frets 1–6 = flags 10–15, roots C D E F G A
+    ///                                fret 7 = flag 0 (known-major reference)
+    ///   bottom pads (7th row)      all flag 0 major — reference sound
+    /// Key C first (the proven key-first flow). Rich strums each pad and
+    /// reports what each flag sounds like; guesses to beat: 3=m7, 4=maj7,
+    /// 5=add9. Restore afterwards with any map's →C1.
+    static func sendFlagProbe() {
+        sendHexWithLog("b11e18010000", name: "Key C")
+        sendHexWithLog("b11e14010002", name: "Unlock")
+        sendHexWithLog("b11e02010006", name: "Mode")
+        var hex = "b11e1f1500"
+        // Round 2 (Rich 09:28 report): CONSTANT ROOT C on every pad — only the
+        // flag varies, so qualities are directly comparable. Root nibble 0
+        // means each byte IS its flag value.
+        // byte-row 0 (bottom pads): frets 1-6 = plain C major reference (flag 0), fret 7 = flag 15
+        for _ in 0..<6 { hex += "00" }
+        hex += "0f"
+        // byte-row 1 (middle pads): flags 1-7 on C (1=Cm and 2=C7 are the KNOWN anchors)
+        for flag in 1...7 { hex += String(format: "%02x", flag) }
+        // byte-row 2 (top pads): flags 8-14 on C
+        for flag in 8...14 { hex += String(format: "%02x", flag) }
+        sendHexWithLog(hex, name: "FLAG PROBE 2 (all C)")
+        sendHexWithLog("b11e02010002", name: "Apply All")
+        AppModel.shared.addLog("Flag probe 2 sent (Key C): EVERY pad is a C. Middle frets 1-7 = flags 1-7 (1=Cm, 2=C7 known anchors); top frets 1-7 = flags 8-14; bottom frets 1-6 = plain C major reference, bottom fret 7 = flag 15.")
+    }
+
     private static func xorHex(_ hex: String, key: UInt8) -> String {
         let cleaned = hex
             .replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)

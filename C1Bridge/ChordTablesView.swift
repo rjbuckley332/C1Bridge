@@ -113,6 +113,22 @@ struct ChordTablesView: View {
             } footer: {
                 Text("Rows run in the guitar's physical order, top pad first: Variant, Diatonic, 7th — matching the official app's left-to-right columns. Every pad is editable: root (Flat/Natural/Sharp) and type (7/M/m/m7/maj7/add9). Tap a row to edit; tap Learn to bind a physical pad. →C1 sends key-first (the proven Rock-Key flow).")
             }
+
+            // MARK: - C1 Lab (Rich 2026-10-08: the nibble probe)
+            Section {
+                Button {
+                    MIDIHandler.sendFlagProbe()
+                } label: {
+                    Label("Send flag probe (all C · flags 1–15)", systemImage: "waveform")
+                        .fixedSize()
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+            } header: {
+                Text("C1 Lab")
+            } footer: {
+                Text("Every pad plays a C — only the flavor changes. Bottom pads = plain C major (your reference). Middle pads frets 1–7 = flags 1–7 (fret 1 should be sad Cm, fret 2 bluesy C7 — known anchors). Top pads frets 1–7 = flags 8–14. Bottom fret 7 = flag 15. Play and describe each flavor in your own words. Restore afterwards with any map's →C1.")
+            }
         }
         .navigationTitle("Chords")
         .alert("Save chord table", isPresented: $showSaveAlert) {

@@ -37,4 +37,14 @@ final class AppModel: ObservableObject {
             self?.logs.removeAll()
         }
     }
+
+    /// Export the last 500 log lines to Documents/c1bridge-log.txt and return the URL for sharing.
+    func exportLog() -> URL? {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let url = docs.appendingPathComponent("c1bridge-log.txt")
+        let text = logs.map { $0.date.formatted(date: .abbreviated, time: .shortened) + " " + $0.message }.joined(separator: "\n")
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+        print("[APP] Log exported to c1bridge-log.txt (\(logs.count) entries)")
+        return url
+    }
 }
