@@ -79,6 +79,15 @@ struct ContentView: View {
                     Text(ble.isScanning ? "Stop" : "Scan")
                 }
                 .buttonStyle(.borderedProminent)
+            // New helper – explicitly creates a full‑grid map (same as factory)
+            Button("Create full‑grid chord map") {
+                let tableName = name.isEmpty ? "(new)" : name
+                let table = ChordTable.starter(name: tableName)
+                library.add(table)
+                AppModel.shared.addLog("Full‑grid chord map "\(table.name)" created")
+                name = ""
+            }
+            .buttonStyle(.bordered)
             }
         }
         .onAppear {
@@ -354,6 +363,15 @@ struct CustomMapBuilder: View {
                 name = ""
             }
             .buttonStyle(.borderedProminent)
+            // New helper – explicitly creates a full‑grid map (same as factory)
+            Button("Create full‑grid chord map") {
+                let tableName = name.isEmpty ? "(new)" : name
+                let table = ChordTable.starter(name: tableName)
+                library.add(table)
+                AppModel.shared.addLog("Full‑grid chord map "\(table.name)" created")
+                name = ""
+            }
+            .buttonStyle(.bordered)
             Divider()
             Text("Saved tables:")
                 .font(.headline)
